@@ -84,7 +84,11 @@
               "id": { "type": "string" },
               "title": { "type": "string" },
               "icon": { "type": "string" },
-              "slot": { "type": "string" }
+              "slot": { "type": "string" },
+              "category": {
+                "type": "string",
+                "description": "Add Panel modal category in the Zeus workspace. Known values: spectrum, vfo, meters, dsp, log, tools, amplifiers, controls, switches, plugins. Defaults to plugins when omitted."
+              }
             }
           }
         }

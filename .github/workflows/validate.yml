@@ -22,7 +22,7 @@ jobs:
 
       - name: Validate registry.json against schema
         run: |
-          ajv -s schema/registry.schema.json -d registry.json --strict=false -c ajv-formats
+          ajv --spec=draft2020 -s schema/registry.schema.json -d registry.json --strict=false -c ajv-formats
 
       - name: Print registry summary
         run: |
@@ -101,7 +101,7 @@ jobs:
                   echo "::error::$id@$ver — zip is missing plugin.json"
                   fail=1; rm -rf "$workdir"; echo "::endgroup::"; continue
               fi
-              if ! ajv -s schema/manifest.schema.json -d "$workdir/plugin.json" --strict=false -c ajv-formats; then
+              if ! ajv --spec=draft2020 -s schema/manifest.schema.json -d "$workdir/plugin.json" --strict=false -c ajv-formats; then
                   echo "::error::$id@$ver — plugin.json does not validate"
                   fail=1
               else

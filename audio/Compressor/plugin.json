@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "com.openhpsdr.zeus.samples.compressor",
+  "name": "Compressor (audio chain v1)",
+  "version": "0.1.2",
+  "author": "KB2UKA",
+  "description": "VCA-style single-stage compressor — first of the Zeus voice audio chain v1 blocks per issue #332. Threshold / ratio / attack / release / soft-knee / makeup gain + bypass toggle. Realtime managed C#, no native dependency. SVG transfer-function curve, rotary knobs, segmented LED meters, brass-plate header with Bypass switch.",
+  "homepage": "https://github.com/Kb2uka/openhpsdr-zeus",
+  "license": "GPL-2.0-or-later",
+  "sdk": {
+    "abi": 1,
+    "minVersion": "1.0.0"
+  },
+  "entrypoint": {
+    "assembly": "Compressor.dll",
+    "type": "Openhpsdr.Zeus.Samples.Compressor.CompressorPlugin"
+  },
+  "capabilities": [
+    "PersistSettings"
+  ],
+  "audio": {
+    "slot": "tx.pre-cfc",
+    "channels": 1,
+    "sampleRate": 48000
+  },
+  "ui": {
+    "modules": [
+      "ui/compressor.es.js"
+    ],
+    "panels": [
+      {
+        "id": "compressor.main",
+        "title": "Compressor",
+        "icon": "Activity",
+        "slot": "tx-audio-tools.chain"
+      }
+    ]
+  }
+}
