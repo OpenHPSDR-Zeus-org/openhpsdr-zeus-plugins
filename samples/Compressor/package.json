@@ -1,6 +1,6 @@
 {
   "name": "compressor-ui",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Openhpsdr-Zeus voice audio chain — Compressor plugin UI module build harness",
   "private": true,
   "license": "GPL-2.0-or-later",

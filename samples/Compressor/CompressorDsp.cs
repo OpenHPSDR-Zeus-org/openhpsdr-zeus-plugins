@@ -36,6 +36,10 @@ public sealed class CompressorDsp
     public float ReleaseMs   { get; set; } = 100f;   // typ 10..2000
     public float KneeDb      { get; set; } = 6f;     // typ 0..24 (soft knee width)
     public float MakeupDb    { get; set; } = 0f;     // typ 0..24
+    // Bypass — when true Process() copies input → output and zeroes GR.
+    // The audio still flows through the chain slot; this is the standard
+    // per-block bypass convention all Zeus audio-chain plugins implement.
+    public bool  Bypass      { get; set; } = false;
 
     // -----------------------------------------------------------------------
     // Metering — last-block readbacks. Updated at the end of every Process()
@@ -74,6 +78,25 @@ public sealed class CompressorDsp
         if (input.Length != output.Length)
             throw new ArgumentException("input and output spans must be the same length");
         if (input.Length == 0) return;
+
+        // Bypass fast-path — copy input to output, update meters as identity,
+        // skip all DSP work. Envelope state is preserved so re-engaging the
+        // compressor doesn't pop. Operator-facing: A/B audition by clicking
+        // the BYPASS toggle without leaving TX.
+        if (Bypass)
+        {
+            input.CopyTo(output);
+            float peakDb = MinDb;
+            for (int i = 0; i < input.Length; i++)
+            {
+                float dbA = LinearToDb(MathF.Abs(input[i]));
+                if (dbA > peakDb) peakDb = dbA;
+            }
+            LastInputPeakDb     = peakDb;
+            LastOutputPeakDb    = peakDb;
+            LastGainReductionDb = 0f;
+            return;
+        }
 
         // Snapshot params once per block — avoids a torn read if a control-
         // thread Set lands mid-block. Cheap.

@@ -106,13 +106,15 @@ public sealed class CompressorPlugin : IZeusPlugin, IAudioPlugin, IBackendPlugin
     private async Task<IResult> SetParams(CompressorParamsDto incoming, CancellationToken ct)
     {
         // Apply the operator's update to the realtime DSP. Each setter on
-        // CompressorDsp is a single 32-bit write — fine to do from this thread.
+        // CompressorDsp is a single 32-bit write (or 1-byte bool) — fine
+        // to do from this thread.
         if (incoming.ThresholdDb.HasValue) _dsp.ThresholdDb = ClampF(incoming.ThresholdDb.Value, -80f, 0f);
         if (incoming.Ratio.HasValue)       _dsp.Ratio       = ClampF(incoming.Ratio.Value,        1f, 20f);
         if (incoming.AttackMs.HasValue)    _dsp.AttackMs    = ClampF(incoming.AttackMs.Value,  0.1f, 100f);
         if (incoming.ReleaseMs.HasValue)   _dsp.ReleaseMs   = ClampF(incoming.ReleaseMs.Value,   1f, 2000f);
         if (incoming.KneeDb.HasValue)      _dsp.KneeDb      = ClampF(incoming.KneeDb.Value,      0f, 24f);
         if (incoming.MakeupDb.HasValue)    _dsp.MakeupDb    = ClampF(incoming.MakeupDb.Value,    0f, 24f);
+        if (incoming.Bypass.HasValue)      _dsp.Bypass      = incoming.Bypass.Value;
 
         await PersistAsync(ct);
         return Results.Ok(SnapshotParams());
@@ -139,6 +141,7 @@ public sealed class CompressorPlugin : IZeusPlugin, IAudioPlugin, IBackendPlugin
         var release   = await settings.GetAsync<float?>("release_ms",   ct);
         var knee      = await settings.GetAsync<float?>("knee_db",      ct);
         var makeup    = await settings.GetAsync<float?>("makeup_db",    ct);
+        var bypass    = await settings.GetAsync<bool?>("bypass",        ct);
 
         if (threshold.HasValue) _dsp.ThresholdDb = threshold.Value;
         if (ratio.HasValue)     _dsp.Ratio       = ratio.Value;
@@ -146,6 +149,7 @@ public sealed class CompressorPlugin : IZeusPlugin, IAudioPlugin, IBackendPlugin
         if (release.HasValue)   _dsp.ReleaseMs   = release.Value;
         if (knee.HasValue)      _dsp.KneeDb      = knee.Value;
         if (makeup.HasValue)    _dsp.MakeupDb    = makeup.Value;
+        if (bypass.HasValue)    _dsp.Bypass      = bypass.Value;
     }
 
     private async Task PersistAsync(CancellationToken ct)
@@ -158,6 +162,7 @@ public sealed class CompressorPlugin : IZeusPlugin, IAudioPlugin, IBackendPlugin
         await s.SetAsync("release_ms",   _dsp.ReleaseMs,   ct);
         await s.SetAsync("knee_db",      _dsp.KneeDb,      ct);
         await s.SetAsync("makeup_db",    _dsp.MakeupDb,    ct);
+        await s.SetAsync("bypass",       _dsp.Bypass,      ct);
     }
 
     private CompressorParamsDto SnapshotParams() => new()
@@ -168,6 +173,7 @@ public sealed class CompressorPlugin : IZeusPlugin, IAudioPlugin, IBackendPlugin
         ReleaseMs   = _dsp.ReleaseMs,
         KneeDb      = _dsp.KneeDb,
         MakeupDb    = _dsp.MakeupDb,
+        Bypass      = _dsp.Bypass,
     };
 
     private static float ClampF(float v, float lo, float hi) => MathF.Max(lo, MathF.Min(hi, v));
@@ -188,6 +194,7 @@ public sealed class CompressorPlugin : IZeusPlugin, IAudioPlugin, IBackendPlugin
         [JsonPropertyName("releaseMs")]   public float? ReleaseMs   { get; init; }
         [JsonPropertyName("kneeDb")]      public float? KneeDb      { get; init; }
         [JsonPropertyName("makeupDb")]    public float? MakeupDb    { get; init; }
+        [JsonPropertyName("bypass")]      public bool?  Bypass      { get; init; }
     }
 
     public sealed record CompressorMetersDto
