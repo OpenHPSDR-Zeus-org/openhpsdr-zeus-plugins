@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "com.openhpsdr.zeus.plugins.antennagenius",
+  "name": "4O3A Antenna Genius",
+  "version": "0.1.0",
+  "author": "Brian Keating (EI6LF)",
+  "description": "Discover and control 4O3A Antenna Genius antenna switches on the LAN. UDP discovery on port 9007, TCP command channel, automatic reconnect, and per-port antenna selection.",
+  "homepage": "https://www.4o3a.com/index.php/products/antenna-genius",
+  "license": "GPL-2.0-or-later",
+  "sdk": { "abi": 1, "minVersion": "1.0.0" },
+  "entrypoint": {
+    "assembly": "AntennaGenius.dll",
+    "type": "Openhpsdr.Zeus.Plugins.AntennaGenius.AntennaGeniusPlugin"
+  },
+  "capabilities": ["NetworkAccess"],
+  "ui": {
+    "modules": ["ui/antennagenius.es.js"],
+    "panels": [
+      {
+        "id": "antennagenius.main",
+        "title": "Antenna Genius",
+        "icon": "Radio",
+        "slot": "workspace.antennagenius"
+      }
+    ]
+  }
+}

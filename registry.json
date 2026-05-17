@@ -1,5 +1,26 @@
 {
   "schemaVersion": 1,
   "generated": "2026-05-17T15:00:00Z",
-  "plugins": []
+  "plugins": [
+    {
+      "id": "com.openhpsdr.zeus.plugins.antennagenius",
+      "name": "4O3A Antenna Genius",
+      "description": "Discover and control 4O3A 403a/802 Antenna Genius antenna switches over LAN, with per-port antenna selection.",
+      "author": "Brian Keating (EI6LF)",
+      "license": "GPL-2.0-or-later",
+      "homepage": "https://www.4o3a.com/index.php/products/antenna-genius",
+      "categories": ["antenna-switch"],
+      "verified": false,
+      "versions": [
+        {
+          "version": "0.1.0",
+          "sdkAbi": 1,
+          "sdkMinVersion": "1.0.0",
+          "platforms": ["any"],
+          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/antennagenius-0.1.0/antennagenius-0.1.0.zip",
+          "sha256": "b069079886f9d243ae80376f3a722ad194140f9756a4242382de606ff050675e"
+        }
+      ]
+    }
+  ]
 }
