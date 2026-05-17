@@ -12,7 +12,7 @@
     "assembly": "Rf2k.dll",
     "type": "Openhpsdr.Zeus.Plugins.Rf2k.Rf2kPlugin"
   },
-  "capabilities": ["PersistSettings"],
+  "capabilities": ["NetworkAccess", "PersistSettings"],
   "permissions": { "network": true },
   "ui": {
     "modules": ["ui/rf2k.es.js"],
