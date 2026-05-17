@@ -23,7 +23,8 @@
         "id": "pgxl.main",
         "title": "Power Genius XL",
         "icon": "Zap",
-        "slot": "workspace.amplifier"
+        "slot": "workspace.amplifier",
+        "category": "amplifiers"
       }
     ]
   }
