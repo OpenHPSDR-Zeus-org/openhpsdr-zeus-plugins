@@ -1,0 +1,123 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  schema:
+    name: registry & manifest schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install ajv-cli
+        run: npm install -g ajv-cli ajv-formats
+
+      - name: Validate registry.json against schema
+        run: |
+          ajv -s schema/registry.schema.json -d registry.json --strict=false -c ajv-formats
+
+      - name: Print registry summary
+        run: |
+          jq '{schemaVersion, generated, count: (.plugins | length)}' registry.json
+
+  checksums:
+    name: verify download SHA-256
+    needs: schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify every declared sha256
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          jq -c '.plugins[] | .id as $id | .versions[] | {id: $id, version, downloadUrl, sha256}' registry.json \
+          | while read -r row; do
+              id=$(jq -r '.id'          <<<"$row")
+              ver=$(jq -r '.version'    <<<"$row")
+              url=$(jq -r '.downloadUrl' <<<"$row")
+              expected=$(jq -r '.sha256' <<<"$row" | tr 'A-Z' 'a-z')
+
+              echo "::group::$id@$ver  $url"
+              tmp=$(mktemp)
+              if ! curl -fsSL --max-time 60 -o "$tmp" "$url"; then
+                  echo "::error::$id@$ver — download failed: $url"
+                  fail=1; rm -f "$tmp"; echo "::endgroup::"; continue
+              fi
+
+              actual=$(sha256sum "$tmp" | awk '{print $1}')
+              if [ "$actual" != "$expected" ]; then
+                  echo "::error::$id@$ver — sha256 mismatch"
+                  echo "          expected: $expected"
+                  echo "          actual:   $actual"
+                  fail=1
+              else
+                  echo "  ✓ sha256 matches"
+              fi
+              rm -f "$tmp"
+              echo "::endgroup::"
+          done
+          if [ "$fail" -ne 0 ]; then exit 1; fi
+
+  manifest:
+    name: validate embedded plugin.json
+    needs: schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install ajv + unzip
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+          npm install -g ajv-cli ajv-formats
+
+      - name: For each registry entry, fetch zip + extract plugin.json + validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          jq -c '.plugins[] | .id as $id | .versions[] | {id: $id, version, downloadUrl}' registry.json \
+          | while read -r row; do
+              id=$(jq -r '.id'          <<<"$row")
+              ver=$(jq -r '.version'    <<<"$row")
+              url=$(jq -r '.downloadUrl' <<<"$row")
+
+              echo "::group::$id@$ver"
+              workdir=$(mktemp -d)
+              if ! curl -fsSL --max-time 60 -o "$workdir/p.zip" "$url"; then
+                  echo "::error::$id@$ver — download failed"
+                  fail=1; rm -rf "$workdir"; echo "::endgroup::"; continue
+              fi
+              if ! unzip -o -j -d "$workdir" "$workdir/p.zip" plugin.json >/dev/null 2>&1; then
+                  echo "::error::$id@$ver — zip is missing plugin.json"
+                  fail=1; rm -rf "$workdir"; echo "::endgroup::"; continue
+              fi
+              if ! ajv -s schema/manifest.schema.json -d "$workdir/plugin.json" --strict=false -c ajv-formats; then
+                  echo "::error::$id@$ver — plugin.json does not validate"
+                  fail=1
+              else
+                  declared_id=$(jq -r '.id' "$workdir/plugin.json")
+                  if [ "$declared_id" != "$id" ]; then
+                      echo "::error::$id@$ver — embedded id '$declared_id' != registry id '$id'"
+                      fail=1
+                  fi
+                  declared_ver=$(jq -r '.version' "$workdir/plugin.json")
+                  if [ "$declared_ver" != "$ver" ]; then
+                      echo "::error::$id@$ver — embedded version '$declared_ver' != registry version '$ver'"
+                      fail=1
+                  fi
+                  echo "  ✓ manifest validates"
+              fi
+              rm -rf "$workdir"
+              echo "::endgroup::"
+          done
+          if [ "$fail" -ne 0 ]; then exit 1; fi
