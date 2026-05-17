@@ -42,7 +42,7 @@ external automation should call:
 | `GET`  | `/status`                              | — |
 | `GET`  | `/devices/{serial}`                    | — |
 | `POST` | `/devices/{serial}/operate`            | `{ "operate": true \| false }` |
-| `POST` | `/devices/{serial}/flexradio/disable`  | — |
+| `POST` | `/devices/{serial}/flexradio/disable`  | `{ "slice": "A" \| "B" }` |
 
 `/status` returns the discovered amplifier list with their latest
 status frame (forward W, SWR, drive %, PA current A, temperature °C,
@@ -78,6 +78,11 @@ to this plugin.
   button so the amp accepts CAT / RF-sense input from another
   source. The plugin exposes that toggle but does not pick a value
   for you — confirm with your station setup.
+- **Vdd readout is a placeholder.** PGXL only publishes its DC rail
+  voltage during TX, so the panel shows `52 V` while the amp is in
+  operate (the nominal rail) and `0 V` in standby. This mirrors the
+  compromise in the original Log4YM panel — the field is a "is the
+  amp on?" indicator rather than a metered reading.
 - Status keys may change with vendor firmware updates; unmapped
   fields surface in `/status` as raw key=value pairs until the
   plugin is updated.
