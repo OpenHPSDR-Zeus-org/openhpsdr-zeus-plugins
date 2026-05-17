@@ -12,7 +12,7 @@
     "assembly": "PowerGeniusXL.dll",
     "type": "Openhpsdr.Zeus.Plugins.PowerGeniusXL.PgxlPlugin"
   },
-  "capabilities": ["PersistSettings"],
+  "capabilities": ["NetworkAccess", "PersistSettings"],
   "permissions": {
     "network": true
   },

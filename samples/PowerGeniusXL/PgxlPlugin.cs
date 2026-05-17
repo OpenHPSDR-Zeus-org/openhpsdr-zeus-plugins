@@ -92,8 +92,16 @@ public sealed class PgxlPlugin : IZeusPlugin, IBackendPlugin
     {
         endpoints.MapGet("status", GetAllStatus);
         endpoints.MapGet("devices/{serial}", GetDeviceStatus);
+        endpoints.MapGet("last-seen", GetLastSeen);
         endpoints.MapPost("devices/{serial}/operate", SetOperate);
         endpoints.MapPost("devices/{serial}/flexradio/disable", DisableFlexRadioPairing);
+    }
+
+    private async Task<IResult> GetLastSeen()
+    {
+        if (_ctx == null) return Results.NoContent();
+        var last = await _ctx.Settings.GetAsync<LastSeenDevice>("lastSeenDevice");
+        return last == null ? Results.NoContent() : Results.Ok(last);
     }
 
     private IResult GetAllStatus()
@@ -244,15 +252,31 @@ public sealed class PgxlPlugin : IZeusPlugin, IBackendPlugin
         }
     }
 
-    private Task HandleDeviceDiscoveredAsync(PgxlDiscoveredEvent device, CancellationToken ct)
+    private async Task HandleDeviceDiscoveredAsync(PgxlDiscoveredEvent device, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(device.Serial))
-            return Task.CompletedTask;
+            return;
 
         if (!_connections.TryGetValue(device.Serial, out var connection))
         {
             Log.LogInformation("Discovered PGXL: {Model} ({Serial}) at {Ip}:{Port}",
                 device.Model, device.Serial, device.IpAddress, device.Port);
+
+            // Persist last-seen device so the UI can hint at the prior
+            // amplifier on cold start before discovery fires.
+            if (_ctx != null)
+            {
+                try
+                {
+                    await _ctx.Settings.SetAsync("lastSeenDevice",
+                        new LastSeenDevice(device.Serial, device.IpAddress, device.Model,
+                                           DateTimeOffset.UtcNow), ct);
+                }
+                catch (Exception ex)
+                {
+                    Log.LogDebug(ex, "Failed to persist lastSeenDevice");
+                }
+            }
 
             connection = new PgxlConnection(device, Log);
             if (_connections.TryAdd(device.Serial, connection))
@@ -262,7 +286,6 @@ public sealed class PgxlPlugin : IZeusPlugin, IBackendPlugin
         {
             connection.UpdateDiscovery(device);
         }
-        return Task.CompletedTask;
     }
 
     // ------------------------------------------------------------------
@@ -274,6 +297,16 @@ public sealed class PgxlPlugin : IZeusPlugin, IBackendPlugin
     public sealed record FlexRadioDisableRequest([property: JsonPropertyName("slice")] string Slice);
 
     public sealed record PgxlDiscoveredEvent(string IpAddress, int Port, string Serial, string Model);
+
+    /// <summary>
+    /// Persisted via <see cref="IPluginContext.Settings"/> so the UI can
+    /// hint at the prior amplifier before discovery completes.
+    /// </summary>
+    public sealed record LastSeenDevice(
+        [property: JsonPropertyName("serial")]    string Serial,
+        [property: JsonPropertyName("ipAddress")] string IpAddress,
+        [property: JsonPropertyName("model")]     string Model,
+        [property: JsonPropertyName("lastSeenAt")] DateTimeOffset LastSeenAt);
 
     public sealed record PgxlMeters(
         [property: JsonPropertyName("forwardPowerDbm")]   double ForwardPowerDbm,
