@@ -17,5 +17,16 @@
     "slot": "tx.pre-cfc",
     "channels": 1,
     "sampleRate": 48000
+  },
+  "ui": {
+    "modules": ["ui/compressor.es.js"],
+    "panels": [
+      {
+        "id": "compressor.main",
+        "title": "Compressor",
+        "icon": "Activity",
+        "slot": "tx-audio-tools.chain"
+      }
+    ]
   }
 }
