@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "com.openhpsdr.zeus.samples.compressor",
   "name": "Compressor (audio chain v1)",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "KB2UKA",
-  "description": "VCA-style single-stage compressor with operator UI \u2014 first of the Zeus voice audio chain v1 blocks per issue #332. Threshold / ratio / attack / release / soft-knee / makeup gain. Realtime managed C#, no native dependency. SVG transfer-function curve, rotary knobs, segmented LED meters in Zeus tokens.",
+  "description": "VCA-style single-stage compressor — first of the Zeus voice audio chain v1 blocks per issue #332. Threshold / ratio / attack / release / soft-knee / makeup gain + bypass toggle. Realtime managed C#, no native dependency. SVG transfer-function curve, rotary knobs, segmented LED meters, brass-plate header with Bypass switch.",
   "homepage": "https://github.com/Kb2uka/openhpsdr-zeus",
   "license": "GPL-2.0-or-later",
   "sdk": {

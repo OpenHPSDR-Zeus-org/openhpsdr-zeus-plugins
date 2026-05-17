@@ -31,6 +31,7 @@ interface CompressorParams {
     releaseMs: number;
     kneeDb: number;
     makeupDb: number;
+    bypass: boolean;
 }
 
 interface CompressorMeters {
@@ -46,6 +47,7 @@ const DEFAULT_PARAMS: CompressorParams = {
     releaseMs: 100,
     kneeDb: 6,
     makeupDb: 0,
+    bypass: false,
 };
 
 const DEFAULT_METERS: CompressorMeters = {
@@ -526,6 +528,7 @@ function CompressorPanel({ api }: { api: ZeusPluginApi }) {
             if (next.releaseMs   !== last.releaseMs)   patch.releaseMs   = next.releaseMs;
             if (next.kneeDb      !== last.kneeDb)      patch.kneeDb      = next.kneeDb;
             if (next.makeupDb    !== last.makeupDb)    patch.makeupDb    = next.makeupDb;
+            if (next.bypass      !== last.bypass)      patch.bypass      = next.bypass;
             if (Object.keys(patch).length === 0) return;
             void api.callBackend('POST', '/params', patch).then(async (res) => {
                 if (res.ok) {
@@ -549,7 +552,7 @@ function CompressorPanel({ api }: { api: ZeusPluginApi }) {
             fontFamily: 'var(--font-sans, Inter, system-ui, sans-serif)',
             boxShadow: '0 1px 0 rgba(255,255,255,0.04) inset, 0 4px 12px rgba(0,0,0,0.25)',
         }}>
-            {/* Brass-instrument-plate header */}
+            {/* Brass-instrument-plate header with bypass toggle */}
             <header style={{
                 position: 'relative',
                 padding: '8px 6px 10px',
@@ -558,6 +561,7 @@ function CompressorPanel({ api }: { api: ZeusPluginApi }) {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
+                gap: 12,
             }}>
                 <h3 style={{
                     margin: 0,
@@ -566,18 +570,62 @@ function CompressorPanel({ api }: { api: ZeusPluginApi }) {
                     fontWeight: 600,
                     letterSpacing: 2,
                     textTransform: 'uppercase',
-                    color: 'var(--fg-0, #e8eaed)',
-                    textShadow: '0 0 8px rgba(255, 201, 58, 0.18)',
+                    color: params.bypass ? 'var(--fg-2, #b8bcc3)' : 'var(--fg-0, #e8eaed)',
+                    textShadow: params.bypass ? 'none' : '0 0 8px rgba(255, 201, 58, 0.18)',
+                    transition: 'color 120ms linear',
                 }}>Compressor</h3>
-                <span style={{
-                    fontFamily: 'var(--font-mono, JetBrains Mono, ui-monospace, monospace)',
-                    fontSize: 10,
-                    color: 'var(--fg-2, #b8bcc3)',
-                    letterSpacing: 0.5,
-                }}>TX · pre-CFC</span>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{
+                        fontFamily: 'var(--font-mono, JetBrains Mono, ui-monospace, monospace)',
+                        fontSize: 10,
+                        color: 'var(--fg-2, #b8bcc3)',
+                        letterSpacing: 0.5,
+                    }}>TX · pre-CFC</span>
+
+                    {/* Bypass toggle — every Zeus audio-chain plugin exposes this
+                        same control at the same position so operators can A/B
+                        any block in the chain identically. Active state in --tx
+                        red so it's unmistakable on the brass plate. */}
+                    <button
+                        type="button"
+                        onClick={() => schedulePost({ ...params, bypass: !params.bypass })}
+                        aria-pressed={params.bypass}
+                        title={params.bypass ? 'Currently bypassed — click to re-engage' : 'Click to bypass this block (audio flows through unchanged)'}
+                        style={{
+                            padding: '4px 12px',
+                            fontFamily: 'var(--font-sans, Inter, system-ui, sans-serif)',
+                            fontSize: 10,
+                            fontWeight: 600,
+                            letterSpacing: 1.5,
+                            textTransform: 'uppercase',
+                            color: params.bypass ? '#fff' : 'var(--fg-1, #d6d8dc)',
+                            background: params.bypass
+                                ? 'var(--tx, #e63a2b)'
+                                : 'var(--bg-2, #1f2226)',
+                            border: '1px solid ' + (params.bypass ? 'var(--tx, #e63a2b)' : 'var(--line-2, #3a3d42)'),
+                            borderRadius: 3,
+                            cursor: 'pointer',
+                            boxShadow: params.bypass
+                                ? '0 0 8px rgba(230, 58, 43, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15)'
+                                : 'inset 0 1px 0 rgba(255, 255, 255, 0.04)',
+                            transition: 'all 120ms ease-out',
+                        }}
+                    >
+                        {params.bypass ? 'Bypassed' : 'Bypass'}
+                    </button>
+                </div>
             </header>
 
-            <div style={{ display: 'flex', gap: 14, alignItems: 'stretch', flexWrap: 'wrap' }}>
+            <div style={{
+                display: 'flex',
+                gap: 14,
+                alignItems: 'stretch',
+                flexWrap: 'wrap',
+                opacity: params.bypass ? 0.45 : 1,
+                transition: 'opacity 160ms ease-out',
+                pointerEvents: params.bypass ? 'none' : 'auto',
+            }}>
                 {/* Left knob column */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 4 }}>
                     <Knob label="Threshold" value={params.thresholdDb} min={-60} max={0}  defaultValue={-18} step={0.5} unit="dB" onChange={(v) => schedulePost({ ...params, thresholdDb: v })} formatValue={(v) => v.toFixed(1)} />
