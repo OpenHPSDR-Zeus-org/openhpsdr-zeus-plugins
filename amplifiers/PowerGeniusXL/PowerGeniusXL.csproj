@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>PowerGeniusXL</AssemblyName>
+    <RootNamespace>Openhpsdr.Zeus.Plugins.PowerGeniusXL</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Assumes OPENHPSDR-Zeus is cloned as a sibling of openhpsdr-zeus-plugins
+       in the parent github/ directory. Replace with a PackageReference once
+       Zeus.Plugins.Contracts ships on NuGet. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\OPENHPSDR-Zeus\Zeus.Plugins.Contracts\Zeus.Plugins.Contracts.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="plugin.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="ui\**\*.js" CopyToOutputDirectory="PreserveNewest" Condition="Exists('ui')" />
+  </ItemGroup>
+
+</Project>

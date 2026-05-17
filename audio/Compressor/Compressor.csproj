@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Compressor</AssemblyName>
+    <RootNamespace>Openhpsdr.Zeus.Samples.Compressor</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <!-- Assumes openhpsdr-zeus is cloned as a sibling directory. Until
+       Openhpsdr.Zeus.Plugins.Contracts ships on NuGet, replace this
+       ProjectReference with a PackageReference once Zeus.Plugins.Contracts ships on NuGet.
+
+       Brian's siblings:  ../../../openhpsdr-zeus/Zeus.Plugins.Contracts/...
+       KB2UKA's siblings: ../../../openhpsdr-zeus-kb2uka/Zeus.Plugins.Contracts/...
+       This project uses a wildcard MSBuild property so either layout
+       resolves without per-developer csproj edits. -->
+  <PropertyGroup>
+    <ZeusContractsPath Condition="Exists('$(MSBuildThisFileDirectory)..\..\..\openhpsdr-zeus\Zeus.Plugins.Contracts\Zeus.Plugins.Contracts.csproj')">..\..\..\openhpsdr-zeus\Zeus.Plugins.Contracts\Zeus.Plugins.Contracts.csproj</ZeusContractsPath>
+    <ZeusContractsPath Condition="'$(ZeusContractsPath)' == '' AND Exists('$(MSBuildThisFileDirectory)..\..\..\openhpsdr-zeus-kb2uka\Zeus.Plugins.Contracts\Zeus.Plugins.Contracts.csproj')">..\..\..\openhpsdr-zeus-kb2uka\Zeus.Plugins.Contracts\Zeus.Plugins.Contracts.csproj</ZeusContractsPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(ZeusContractsPath)">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="plugin.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

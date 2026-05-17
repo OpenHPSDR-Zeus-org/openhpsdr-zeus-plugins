@@ -1,24 +1,84 @@
 {
   "schemaVersion": 1,
-  "generated": "2026-05-17T15:00:00Z",
+  "generated": "2026-05-17T20:55:00Z",
   "plugins": [
     {
       "id": "com.openhpsdr.zeus.plugins.antennagenius",
       "name": "4O3A Antenna Genius",
-      "description": "Discover and control 4O3A 403a/802 Antenna Genius antenna switches over LAN, with per-port antenna selection.",
+      "description": "Discover and control 4O3A Antenna Genius antenna switches on the LAN. UDP discovery on port 9007, TCP command channel, automatic reconnect, per-port antenna selection.",
       "author": "Brian Keating (EI6LF)",
       "license": "GPL-2.0-or-later",
       "homepage": "https://www.4o3a.com/index.php/products/antenna-genius",
-      "categories": ["antenna-switch"],
-      "verified": false,
+      "categories": ["switches"],
+      "verified": true,
       "versions": [
         {
           "version": "0.1.0",
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/antennagenius-0.1.0/antennagenius-0.1.0.zip",
-          "sha256": "1ffb88727ae6914710cdf0e66bc85b356c7aee907656977e4106de83adef150f"
+          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/antennagenius-v0.1.0/antennagenius-0.1.0.zip",
+          "sha256": "3fdf057656320b476b338ee8f4f8f1aeffa8d84a6d34d1f8df08c28aafdbd6c2"
+        }
+      ]
+    },
+    {
+      "id": "com.openhpsdr.zeus.plugins.pgxl",
+      "name": "4O3A Power Genius XL",
+      "description": "4O3A Power Genius XL solid-state amplifier control. UDP discovery and TCP control on :9008; surfaces operate/standby, A/B band+bias, forward power, SWR, drive, PA current, temperature, and FlexRadio pairing override.",
+      "author": "Brian Keating (EI6LF)",
+      "license": "GPL-2.0-or-later",
+      "homepage": "https://www.4o3a.com/index.php/products/power-genius-xl",
+      "categories": ["amplifiers"],
+      "verified": true,
+      "versions": [
+        {
+          "version": "1.0.0",
+          "sdkAbi": 1,
+          "sdkMinVersion": "1.0.0",
+          "platforms": ["any"],
+          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/pgxl-v1.0.0/pgxl-1.0.0.zip",
+          "sha256": "6a3189feefe2c4ed2265cebd7520b731c161ca9d1f15d8dbd33230384f384ec1"
+        }
+      ]
+    },
+    {
+      "id": "com.openhpsdr.zeus.plugins.tgxl",
+      "name": "4O3A Tuner Genius XL",
+      "description": "4O3A Tuner Genius XL antenna tuner control. UDP :9010 discovery, TCP :9010 control. One L/C matching network serving up to two radios (SO2R). Live status (forward power, SWR, L/C1/C2, port A/B), tune/bypass/operate controls.",
+      "author": "Brian Keating (EI6LF)",
+      "license": "GPL-2.0-or-later",
+      "homepage": "https://www.4o3a.com/index.php/products/tuner-genius-xl",
+      "categories": ["tuners"],
+      "verified": true,
+      "versions": [
+        {
+          "version": "1.0.0",
+          "sdkAbi": 1,
+          "sdkMinVersion": "1.0.0",
+          "platforms": ["any"],
+          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/tgxl-v1.0.0/tgxl-1.0.0.zip",
+          "sha256": "a4d9e798c34e999f117716ca6f332963a983cc7ba7953749fc6c5181856ef09d"
+        }
+      ]
+    },
+    {
+      "id": "com.openhpsdr.zeus.plugins.rf2k",
+      "name": "RF-Kit RF2K-S Amplifier",
+      "description": "Operator console for the RF-Kit RF2K-S amplifier. Forward/reflected power, SWR, tuner status, antenna selection, operate/standby, fault reset, and VNC-injected Tune/Bypass. Talks to the amp's REST API on :8080 and its VNC on :5900.",
+      "author": "Brian Keating (EI6LF)",
+      "license": "GPL-2.0-or-later",
+      "homepage": "https://github.com/Kb2uka/openhpsdr-zeus",
+      "categories": ["amplifiers"],
+      "verified": true,
+      "versions": [
+        {
+          "version": "1.0.0",
+          "sdkAbi": 1,
+          "sdkMinVersion": "1.0.0",
+          "platforms": ["any"],
+          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/rf2k-v1.0.0/rf2k-1.0.0.zip",
+          "sha256": "9d6f08c800806bbf1b3b3dfae8007d463326193b02696c62144cbf98313fe72f"
         }
       ]
     }
