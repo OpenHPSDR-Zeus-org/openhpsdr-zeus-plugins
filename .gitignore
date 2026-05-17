@@ -1,3 +1,12 @@
 node_modules/
 .DS_Store
 *.log
+
+# .NET build outputs
+bin/
+obj/
+publish/
+
+# Built UI bundles (source .tsx is committed, ESM build output is a release artifact)
+**/ui/*.es.js
+**/ui/*.es.js.map
