@@ -8,7 +8,7 @@ with non-Flex radios (HL2, ANAN-class, etc.).
 
 - Plugin id: `com.openhpsdr.zeus.plugins.pgxl`
 - Slot: `workspace.amplifier`
-- Capabilities requested: `PersistSettings`
+- Capabilities requested: `NetworkAccess`, `PersistSettings`
 - Permissions requested: `network: true`
 
 ## Hardware and protocol
@@ -41,13 +41,18 @@ external automation should call:
 |---|---|---|
 | `GET`  | `/status`                              | — |
 | `GET`  | `/devices/{serial}`                    | — |
+| `GET`  | `/last-seen`                           | — |
 | `POST` | `/devices/{serial}/operate`            | `{ "operate": true \| false }` |
 | `POST` | `/devices/{serial}/flexradio/disable`  | `{ "slice": "A" \| "B" }` |
 
 `/status` returns the discovered amplifier list with their latest
 status frame (forward W, SWR, drive %, PA current A, temperature °C,
 A/B band selection, operate/standby state, FlexRadio pairing flag).
-`/devices/{serial}` returns the single-device subset.
+`/devices/{serial}` returns the single-device subset. `/last-seen`
+returns `{ serial, ipAddress, model, lastSeenAt }` for the most
+recently discovered amplifier (or `204 No Content` if discovery has
+never fired since install) — useful for a cold-start hint in the UI
+before live discovery completes.
 
 ## Install
 
