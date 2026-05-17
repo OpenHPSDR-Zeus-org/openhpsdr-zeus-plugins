@@ -20,7 +20,8 @@
         "id": "antennagenius.main",
         "title": "Antenna Genius",
         "icon": "Radio",
-        "slot": "workspace.antennagenius"
+        "slot": "workspace.antennagenius",
+        "category": "switches"
       }
     ]
   }
