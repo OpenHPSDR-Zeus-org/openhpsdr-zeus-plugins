@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>HelloWorld</AssemblyName>
+    <RootNamespace>Openhpsdr.Zeus.Samples.HelloWorld</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- Don't propagate Zeus.Plugins.Contracts into our output dir; the
+         host already owns that assembly, and copying it produces ALC
+         double-load surprises at runtime. -->
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <!-- Assumes openhpsdr-zeus is cloned as a sibling directory. Until
+       Openhpsdr.Zeus.Plugins.Contracts ships on NuGet, replace this
+       ProjectReference with a PackageReference (see samples/README.md). -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\openhpsdr-zeus\Zeus.Plugins.Contracts\Zeus.Plugins.Contracts.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="plugin.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
