@@ -49,7 +49,7 @@ and freq, PTT, operate/standby state).
 ## Install
 
 ```bash
-cd samples/TunerGeniusXL
+cd tuners/TunerGeniusXL
 dotnet publish -c Release -o publish/
 cd publish && zip -r ../tunergeniusxl-1.0.0.zip TunerGeniusXL.dll plugin.json ui/
 ```
@@ -83,7 +83,7 @@ Ported from the Log4YM project's in-tree integration —
 `src/Log4YM.Server/Services/TunerGeniusService.cs` and
 `src/Log4YM.Web/src/plugins/TunerGeniusPlugin.tsx`. The plugin
 replaces the SignalR push pipeline used in Log4YM with the Zeus
-plugin runtime's REST-poll model (matching the `samples/Amplifier/`
+plugin runtime's REST-poll model (matching the original Amplifier sample
 contract). DTOs ported from `Log4YM.Contracts/Events/LogEvents.cs`
 (`TunerGenius*` records).
 

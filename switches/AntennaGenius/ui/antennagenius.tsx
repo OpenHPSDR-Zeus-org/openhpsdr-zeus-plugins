@@ -15,7 +15,7 @@
 import { useEffect, useState } from 'react';
 
 // ---------------------------------------------------------------------------
-// ZeusPluginApi — copied from samples/Amplifier/ui/amplifier.tsx (the host
+// ZeusPluginApi — copied from the host plugin runtime contract (the host
 // supplies this at register time; redeclaring it here keeps the module
 // self-contained).
 // ---------------------------------------------------------------------------

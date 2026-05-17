@@ -57,7 +57,7 @@ before live discovery completes.
 ## Install
 
 ```bash
-cd samples/PowerGeniusXL
+cd amplifiers/PowerGeniusXL
 dotnet publish -c Release -o publish/
 cd publish && zip -r ../powergeniusxl-1.0.0.zip PowerGeniusXL.dll plugin.json ui/
 ```
@@ -103,7 +103,7 @@ inner class) and `src/Log4YM.Web/src/plugins/PgxlPlugin.tsx`. DTOs
 were lifted from `Log4YM.Contracts/Events/LogEvents.cs` (`Pgxl*`
 records). The port replaces Log4YM's SignalR push pipeline with the
 Zeus plugin runtime's REST-poll model (matching the
-`samples/Amplifier/` reference contract).
+reference contract from earlier samples).
 
 ## Upstream
 

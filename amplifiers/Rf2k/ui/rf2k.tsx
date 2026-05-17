@@ -27,7 +27,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 
 // ============================================================================
 //  ZeusPluginApi — contract from the host (the same shape as the sample
-//  Amplifier plugin in samples/Amplifier/ui/amplifier.tsx).
+//  prior Amplifier sample plugin).
 // ============================================================================
 
 interface ZeusPluginApi {

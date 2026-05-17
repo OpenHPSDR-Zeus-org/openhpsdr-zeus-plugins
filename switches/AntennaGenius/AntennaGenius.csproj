@@ -17,9 +17,9 @@
   <!-- Assumes the Zeus checkout (OPENHPSDR-Zeus) is a sibling of the
        openhpsdr-zeus-plugins worktree root. Until
        Openhpsdr.Zeus.Plugins.Contracts ships on NuGet, replace this
-       ProjectReference with a PackageReference (see samples/README.md). -->
+       ProjectReference with a PackageReference once Zeus.Plugins.Contracts ships on NuGet. -->
   <ItemGroup>
-    <ProjectReference Include="..\..\..\..\OPENHPSDR-Zeus\Zeus.Plugins.Contracts\Zeus.Plugins.Contracts.csproj">
+    <ProjectReference Include="..\..\..\OPENHPSDR-Zeus\Zeus.Plugins.Contracts\Zeus.Plugins.Contracts.csproj">
       <Private>false</Private>
     </ProjectReference>
   </ItemGroup>

@@ -4,8 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>Amplifier</AssemblyName>
-    <RootNamespace>Openhpsdr.Zeus.Samples.Amplifier</RootNamespace>
+    <AssemblyName>Rf2k</AssemblyName>
+    <RootNamespace>Openhpsdr.Zeus.Plugins.Rf2k</RootNamespace>
     <IsPackable>false</IsPackable>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
   </PropertyGroup>
@@ -14,11 +14,11 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
-  <!-- Assumes openhpsdr-zeus is cloned as a sibling directory. Until
-       Openhpsdr.Zeus.Plugins.Contracts ships on NuGet, replace this
-       ProjectReference with a PackageReference (see samples/README.md). -->
+  <!-- Assumes OPENHPSDR-Zeus is cloned as a sibling of openhpsdr-zeus-plugins
+       in the parent github/ directory. Replace with a PackageReference once
+       Zeus.Plugins.Contracts ships on NuGet. -->
   <ItemGroup>
-    <ProjectReference Include="..\..\..\openhpsdr-zeus\Zeus.Plugins.Contracts\Zeus.Plugins.Contracts.csproj">
+    <ProjectReference Include="..\..\..\OPENHPSDR-Zeus\Zeus.Plugins.Contracts\Zeus.Plugins.Contracts.csproj">
       <Private>false</Private>
     </ProjectReference>
   </ItemGroup>

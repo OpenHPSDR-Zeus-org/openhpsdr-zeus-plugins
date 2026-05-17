@@ -59,7 +59,7 @@ prefix swap:
 ## Install
 
 ```bash
-cd samples/Rf2k
+cd amplifiers/Rf2k
 dotnet publish -c Release -o publish/
 cd publish && zip -r ../rf2k-1.0.0.zip Rf2k.dll plugin.json ui/
 ```
