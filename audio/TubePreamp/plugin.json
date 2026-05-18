@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "com.openhpsdr.zeus.samples.tubepreamp",
+  "name": "Tube Preamp (audio chain v2)",
+  "version": "0.1.0",
+  "author": "KB2UKA",
+  "description": "Triode-style tube preamp / soft-saturator for the Zeus voice audio chain. Asymmetric tanh transfer (operator-tunable bias point) generates the 2nd-harmonic richness that characterises a vacuum-tube preamp; a 1-pole DC blocker scrubs the static offset, and a post-saturation low-pass shelf (Warmth) trades top-end harshness against air. Realtime managed C#, no native dependency. Live SVG transfer-curve viz, rotary knobs (Drive / Bias / Warmth / Output), bypass header switch, IN / OUT peak meters.",
+  "homepage": "https://github.com/Kb2uka/openhpsdr-zeus",
+  "license": "GPL-2.0-or-later",
+  "sdk": {
+    "abi": 1,
+    "minVersion": "1.0.0"
+  },
+  "entrypoint": {
+    "assembly": "TubePreamp.dll",
+    "type": "Openhpsdr.Zeus.Samples.TubePreamp.TubePreampPlugin"
+  },
+  "capabilities": [
+    "PersistSettings"
+  ],
+  "audio": {
+    "slot": "tx.pre-cfc",
+    "channels": 1,
+    "sampleRate": 48000
+  },
+  "ui": {
+    "modules": [
+      "ui/tubepreamp.es.js"
+    ],
+    "panels": [
+      {
+        "id": "tubepreamp.main",
+        "title": "Tube Preamp",
+        "icon": "Cylinder",
+        "slot": "tx-audio-tools.chain"
+      }
+    ]
+  }
+}
