@@ -1,13 +1,23 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// Zeus voice audio chain v1 — 10-Band Parametric EQ UI module.
+// Zeus voice audio chain v2 — 10-Band Parametric EQ UI module.
 // Copyright (C) 2025-2026 KB2UKA and contributors.
 //
-// Centerpiece SVG curve: combined magnitude of all 10 cascaded biquad
-// peaking filters, plotted log-frequency on X (20 Hz → 20 kHz) vs
-// gain dB on Y (-24 → +24). Below the curve: 10 columns of (freq,
-// gain, Q) rotary knobs. Brass-plate header with Bypass + Reset
-// buttons. All Zeus tokens, no raw hex.
+// v0.2.0 layout:
+//
+//   ┌─────────────────────────────────────────────────────────────────┐
+//   │  brass-plate header: title │ reset · bypass                     │
+//   ├──────────┬───────────────────────────────────────────┬──────────┤
+//   │  IN gain │  combined EQ curve over live spectrum    │ OUT gain │
+//   │  ───┴─── │  (input spectrum fill, output outline)   │ ───┴───  │
+//   │   IN m   │                                          │  OUT m   │
+//   ├──────────┴───────────────────────────────────────────┴──────────┤
+//   │  10 band columns: freq · gain · Q knobs                         │
+//   └─────────────────────────────────────────────────────────────────┘
+//
+// Tokens only (no raw hex). Live spectrum polls /spectrum at 30 Hz,
+// applies peak-hold + 12 dB/sec falloff client-side so the trace
+// doesn't flicker.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -27,6 +37,8 @@ interface EqBand {
 interface EqParams {
     bands: EqBand[];
     bypass: boolean;
+    inputGainDb: number;
+    outputGainDb: number;
 }
 
 interface EqMeters {
@@ -34,20 +46,43 @@ interface EqMeters {
     outputPeakDb: number;
 }
 
+interface EqSpectrum {
+    inputBinsDb: number[];
+    outputBinsDb: number[];
+    binCount: number;
+    fMinHz: number;
+    fMaxHz: number;
+    dbFloor: number;
+}
+
 const BAND_COUNT = 10;
+const SPECTRUM_BIN_COUNT = 256;
 
 const DEFAULT_FREQS = [80, 150, 300, 500, 800, 1200, 1800, 2700, 4000, 6000];
 
 const DEFAULT_PARAMS: EqParams = {
     bands: DEFAULT_FREQS.map((f) => ({ freqHz: f, gainDb: 0, q: 1.0 })),
     bypass: false,
+    inputGainDb: 0,
+    outputGainDb: 0,
 };
 
 const DEFAULT_METERS: EqMeters = { inputPeakDb: -200, outputPeakDb: -200 };
 
+const SPECTRUM_DB_FLOOR = -120;
+const SPECTRUM_DB_CEIL = 0;
+
+// Spectrum poll cadence + decay. 33 ms = ~30 Hz; per-tick falloff of
+// 12 dB/sec works out to ~0.4 dB per tick so a peak takes ~3 seconds
+// to fall from 0 to -120 dB — slow enough that the eye reads it as
+// smooth, fast enough that level changes feel responsive.
+const SPECTRUM_POLL_MS = 33;
+const SPECTRUM_FALLOFF_DB_PER_SEC = 12;
+const SPECTRUM_FALLOFF_PER_TICK = SPECTRUM_FALLOFF_DB_PER_SEC * (SPECTRUM_POLL_MS / 1000);
+
 // ---------------------------------------------------------------
-// Knob — SVG rotary with drag-to-rotate. Same shape as Compressor's
-// knob (the Zeus chain-plugin convention).
+// Knob — SVG rotary with drag-to-rotate. Shared shape across all the
+// Zeus chain plugins.
 // ---------------------------------------------------------------
 interface KnobProps {
     label: string;
@@ -223,19 +258,73 @@ function Knob({ label, value, min, max, defaultValue, unit, formatValue, logScal
 }
 
 // ---------------------------------------------------------------
-// EQ curve viz — combined magnitude of all 10 peaking biquads,
-// log-frequency on X (20 Hz to 20 kHz), gain dB on Y (-24 to +24).
-// Sampled at 256 points across the log-frequency axis; cheap enough
-// to recompute every render. Vertical band-position markers in
-// --power gold show where each band sits on the frequency axis.
+// VerticalMeter — slim vertical bar, dB scale -60 to 0. Gradient
+// from --accent (low) → --power (mid) → --tx (high). dB readout
+// below. Used for IN and OUT in the flanking columns.
+// ---------------------------------------------------------------
+function VerticalMeter({ levelDb, label, height = 110 }: { levelDb: number; label: string; height?: number }) {
+    const dbMin = -60;
+    const dbMax = 0;
+    const norm = Math.max(0, Math.min(1, (levelDb - dbMin) / (dbMax - dbMin)));
+    const filledHeight = height * norm;
+    const display = levelDb > -150 ? levelDb.toFixed(0) : '—';
+    return (
+        <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 4,
+        }}>
+            <div style={{
+                position: 'relative',
+                width: 12,
+                height,
+                background: 'var(--bg-0, #0e1014)',
+                border: '1px solid var(--line-1, #2a2c30)',
+                borderRadius: 2,
+                overflow: 'hidden',
+            }}>
+                <div style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: filledHeight,
+                    background: 'linear-gradient(0deg, var(--accent, #4a9eff) 0%, var(--accent, #4a9eff) 50%, var(--power, #ffc93a) 75%, var(--tx, #e63a2b) 100%)',
+                    transition: 'height 50ms linear',
+                }} />
+            </div>
+            <span style={{
+                fontFamily: 'var(--font-mono, JetBrains Mono, ui-monospace, monospace)',
+                fontSize: 9,
+                color: 'var(--fg-1, #d6d8dc)',
+                fontVariantNumeric: 'tabular-nums',
+                lineHeight: 1,
+            }}>{display}</span>
+            <span style={{
+                fontFamily: 'var(--font-sans, Inter, system-ui, sans-serif)',
+                fontSize: 8,
+                letterSpacing: 0.6,
+                textTransform: 'uppercase',
+                color: 'var(--fg-3, #5a5e66)',
+                fontWeight: 500,
+            }}>{label}</span>
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------
+// EQ curve viz — combined magnitude of all 10 cascaded biquad
+// peaking filters, log-frequency on X (20 Hz to 20 kHz) vs gain dB
+// on Y (-24 to +24). v0.2.0 overlays the live input + output
+// spectrum behind the EQ curve so the operator can SEE what the
+// EQ is doing to their voice.
 // ---------------------------------------------------------------
 
 const SAMPLE_RATE = 48000;
 const F_MIN = 20;
 const F_MAX = 20000;
 
-// Compute |H(e^jω)|² for a single peaking biquad at frequency f.
-// Returns linear magnitude (NOT dB).
 function biquadMagnitude(f: number, band: EqBand): number {
     const A = Math.pow(10, band.gainDb / 40);
     const w0 = 2 * Math.PI * band.freqHz / SAMPLE_RATE;
@@ -249,7 +338,6 @@ function biquadMagnitude(f: number, band: EqBand): number {
     const a1 = -2 * cosW0;
     const a2 = 1 - alpha / A;
 
-    // Evaluate at ω = 2πf/fs.
     const w = 2 * Math.PI * f / SAMPLE_RATE;
     const cosW = Math.cos(w);
     const cos2W = Math.cos(2 * w);
@@ -274,18 +362,32 @@ function combinedGainDb(f: number, bands: EqBand[]): number {
     return 20 * Math.log10(totalMag);
 }
 
-function EqCurve({ params }: { params: EqParams }) {
+interface EqCurveProps {
+    params: EqParams;
+    inputSpec: Float32Array | null;
+    outputSpec: Float32Array | null;
+}
+
+function EqCurve({ params, inputSpec, outputSpec }: EqCurveProps) {
     const W = 720;
     const H = 220;
     const gainMin = -24;
     const gainMax = 24;
     const SAMPLES = 240;
 
-    // Log freq mapping.
+    // Log freq mapping for the EQ curve.
     const lnLo = Math.log(F_MIN);
     const lnHi = Math.log(F_MAX);
     const xOf = (f: number) => ((Math.log(Math.max(F_MIN, Math.min(F_MAX, f))) - lnLo) / (lnHi - lnLo)) * W;
     const yOf = (g: number) => H * (1 - (Math.max(gainMin, Math.min(gainMax, g)) - gainMin) / (gainMax - gainMin));
+
+    // Spectrum dB → vertical position uses a SEPARATE axis -80 dBFS …
+    // 0 dBFS so the spectrum fills the panel without colliding with
+    // the EQ curve's gain axis. We map dBFS so 0 dBFS is at the same
+    // pixel as 0 dB gain (centre) and -80 dBFS sits at the bottom.
+    const specDbMin = -80;
+    const specDbMax = 0;
+    const ySpec = (db: number) => H * (1 - (Math.max(specDbMin, Math.min(specDbMax, db)) - specDbMin) / (specDbMax - specDbMin));
 
     const path = useMemo(() => {
         const cmds: string[] = [];
@@ -303,7 +405,38 @@ function EqCurve({ params }: { params: EqParams }) {
         return `${path} L ${W} ${zeroY} L 0 ${zeroY} Z`;
     }, [path]);
 
-    // Frequency grid labels.
+    // Spectrum paths: walk SPECTRUM_BIN_COUNT log-spaced bins. The
+    // server has already log-binned the FFT output for us so the X-
+    // mapping is uniform across bins (each bin → 1/N of the X axis
+    // in log-frequency).
+    const inputSpecPath = useMemo(() => {
+        if (!inputSpec || inputSpec.length === 0) return null;
+        const cmds: string[] = [];
+        const baseY = H;
+        for (let k = 0; k < inputSpec.length; k++) {
+            const t = (k + 0.5) / inputSpec.length;
+            const f = Math.exp(lnLo + t * (lnHi - lnLo));
+            const x = xOf(f);
+            const y = ySpec(inputSpec[k]);
+            cmds.push((k === 0 ? `M ${x.toFixed(1)} ${baseY}` : '') + ` L ${x.toFixed(1)} ${y.toFixed(1)}`);
+        }
+        cmds.push(` L ${W} ${baseY} Z`);
+        return cmds.join('');
+    }, [inputSpec, lnLo, lnHi]);
+
+    const outputSpecPath = useMemo(() => {
+        if (!outputSpec || outputSpec.length === 0) return null;
+        const cmds: string[] = [];
+        for (let k = 0; k < outputSpec.length; k++) {
+            const t = (k + 0.5) / outputSpec.length;
+            const f = Math.exp(lnLo + t * (lnHi - lnLo));
+            const x = xOf(f);
+            const y = ySpec(outputSpec[k]);
+            cmds.push((k === 0 ? 'M' : 'L') + ' ' + x.toFixed(1) + ' ' + y.toFixed(1));
+        }
+        return cmds.join(' ');
+    }, [outputSpec, lnLo, lnHi]);
+
     const freqGrid = [50, 100, 200, 500, 1000, 2000, 5000, 10000];
     const gainGrid = [-18, -12, -6, 6, 12, 18];
 
@@ -320,7 +453,7 @@ function EqCurve({ params }: { params: EqParams }) {
                 border: '1px solid var(--line-1, #2a2c30)',
             }}
             role="img"
-            aria-label="EQ frequency response curve"
+            aria-label="EQ frequency response with live input/output spectrum"
         >
             <defs>
                 <linearGradient id="eq-fill" x1="0" y1="0" x2="0" y2={H} gradientUnits="userSpaceOnUse">
@@ -357,6 +490,19 @@ function EqCurve({ params }: { params: EqParams }) {
                 </g>
             ))}
 
+            {/* Live INPUT spectrum — semi-transparent fill BEHIND the
+                output trace. This is the "before EQ" view. */}
+            {inputSpecPath && (
+                <path d={inputSpecPath} fill="var(--accent, #4a9eff)" fillOpacity={0.18} stroke="none" />
+            )}
+
+            {/* Live OUTPUT spectrum — bright outline OVER the input fill.
+                The gap between input fill and output outline visualises
+                what the EQ is doing to the signal in real time. */}
+            {outputSpecPath && (
+                <path d={outputSpecPath} stroke="var(--accent, #4a9eff)" strokeWidth={1.3} strokeOpacity={0.85} fill="none" />
+            )}
+
             {/* Unity (0 dB) reference line */}
             <line x1={0} y1={yOf(0)} x2={W} y2={yOf(0)} stroke="var(--fg-3, #5a5e66)" strokeWidth={1} opacity={0.6} />
 
@@ -375,22 +521,30 @@ function EqCurve({ params }: { params: EqParams }) {
                 );
             })}
 
-            {/* Combined response fill */}
-            <path d={fillPath} fill="url(#eq-fill)" />
+            {/* Combined EQ response fill (over spectrum, under curve) */}
+            <path d={fillPath} fill="url(#eq-fill)" opacity={0.6} />
 
-            {/* Combined response curve */}
-            <path d={path} stroke="var(--accent, #4a9eff)" strokeWidth={2.2} fill="none" filter="url(#eq-curve-glow)" />
+            {/* Combined EQ response curve (top layer) */}
+            <path d={path} stroke="var(--power, #ffc93a)" strokeWidth={2.2} fill="none" filter="url(#eq-curve-glow)" />
         </svg>
     );
 }
 
 // ---------------------------------------------------------------
-// EqPanel — header + curve + 10 band columns.
+// EqPanel — v0.2.0 layout. Header + I/O column · curve · I/O column
+// + 10 band columns below.
 // ---------------------------------------------------------------
 function EqPanel({ api }: { api: ZeusPluginApi }) {
     const [params, setParams] = useState<EqParams>(DEFAULT_PARAMS);
     const [meters, setMeters] = useState<EqMeters>(DEFAULT_METERS);
     const lastPostedRef = useRef<EqParams>(DEFAULT_PARAMS);
+
+    // Spectrum data + peak-hold buffers. We hold the spectrum as
+    // Float32Arrays for cheap re-renders and to avoid garbage churn.
+    const [inputSpec, setInputSpec] = useState<Float32Array | null>(null);
+    const [outputSpec, setOutputSpec] = useState<Float32Array | null>(null);
+    const inputPeakRef  = useRef<Float32Array | null>(null);
+    const outputPeakRef = useRef<Float32Array | null>(null);
 
     useEffect(() => {
         let active = true;
@@ -400,8 +554,15 @@ function EqPanel({ api }: { api: ZeusPluginApi }) {
                 if (active && res.ok) {
                     const p = (await res.json()) as EqParams;
                     if (p && p.bands && p.bands.length === BAND_COUNT) {
-                        setParams(p);
-                        lastPostedRef.current = p;
+                        // Defensive defaults for v0.1.0-saved settings
+                        // that don't have inputGainDb / outputGainDb.
+                        const normalised: EqParams = {
+                            ...p,
+                            inputGainDb:  p.inputGainDb  ?? 0,
+                            outputGainDb: p.outputGainDb ?? 0,
+                        };
+                        setParams(normalised);
+                        lastPostedRef.current = normalised;
                     }
                 }
             } catch { /* swallow */ }
@@ -424,6 +585,51 @@ function EqPanel({ api }: { api: ZeusPluginApi }) {
         return () => { active = false; window.clearInterval(t); };
     }, [api]);
 
+    // Spectrum poll loop — fetch new bins from /spectrum, blend with
+    // a peak-hold + falloff buffer so the visible trace doesn't
+    // flicker on transients. Falloff per tick is computed from
+    // SPECTRUM_FALLOFF_DB_PER_SEC so reducing the poll interval
+    // automatically keeps the felt-decay constant.
+    useEffect(() => {
+        let active = true;
+        const tick = async () => {
+            try {
+                const res = await api.callBackend('GET', '/spectrum');
+                if (!active || !res.ok) return;
+                const j = (await res.json()) as EqSpectrum;
+                if (!j || !Array.isArray(j.inputBinsDb) || !Array.isArray(j.outputBinsDb)) return;
+                const N = j.binCount || j.inputBinsDb.length;
+
+                // Initialise peak buffers on first tick.
+                if (inputPeakRef.current === null || inputPeakRef.current.length !== N) {
+                    inputPeakRef.current  = new Float32Array(N).fill(SPECTRUM_DB_FLOOR);
+                    outputPeakRef.current = new Float32Array(N).fill(SPECTRUM_DB_FLOOR);
+                }
+
+                const ip = inputPeakRef.current!;
+                const op = outputPeakRef.current!;
+                for (let k = 0; k < N; k++) {
+                    const inBin  = Math.max(SPECTRUM_DB_FLOOR, Math.min(SPECTRUM_DB_CEIL, j.inputBinsDb[k]));
+                    const outBin = Math.max(SPECTRUM_DB_FLOOR, Math.min(SPECTRUM_DB_CEIL, j.outputBinsDb[k]));
+                    // Peak attacks instantly (max of current + new),
+                    // releases linearly at SPECTRUM_FALLOFF_PER_TICK
+                    // dB per tick.
+                    ip[k] = inBin > ip[k] ? inBin : Math.max(SPECTRUM_DB_FLOOR, ip[k] - SPECTRUM_FALLOFF_PER_TICK);
+                    op[k] = outBin > op[k] ? outBin : Math.max(SPECTRUM_DB_FLOOR, op[k] - SPECTRUM_FALLOFF_PER_TICK);
+                }
+                // Hand the buffers to React; we slice() to a fresh
+                // Float32Array so the state update sees a NEW
+                // reference and re-renders (otherwise React would
+                // bail because the ref didn't change).
+                setInputSpec(new Float32Array(ip));
+                setOutputSpec(new Float32Array(op));
+            } catch { /* swallow */ }
+        };
+        const t = window.setInterval(tick, SPECTRUM_POLL_MS);
+        tick();
+        return () => { active = false; window.clearInterval(t); };
+    }, [api]);
+
     const postDebounceRef = useRef<number | null>(null);
     const schedulePost = useCallback((next: EqParams) => {
         setParams(next);
@@ -439,12 +645,19 @@ function EqPanel({ api }: { api: ZeusPluginApi }) {
             );
             if (bandsChanged) patch.bands = next.bands;
             if (next.bypass !== last.bypass) patch.bypass = next.bypass;
+            if (next.inputGainDb !== last.inputGainDb) patch.inputGainDb = next.inputGainDb;
+            if (next.outputGainDb !== last.outputGainDb) patch.outputGainDb = next.outputGainDb;
             if (Object.keys(patch).length === 0) return;
             void api.callBackend('POST', '/params', patch).then(async (res) => {
                 if (res.ok) {
                     const echoed = (await res.json()) as EqParams;
                     if (echoed && echoed.bands && echoed.bands.length === BAND_COUNT) {
-                        lastPostedRef.current = echoed;
+                        const normalised: EqParams = {
+                            ...echoed,
+                            inputGainDb:  echoed.inputGainDb  ?? 0,
+                            outputGainDb: echoed.outputGainDb ?? 0,
+                        };
+                        lastPostedRef.current = normalised;
                     }
                 }
             });
@@ -458,11 +671,13 @@ function EqPanel({ api }: { api: ZeusPluginApi }) {
 
     const resetAll = useCallback(() => {
         const next: EqParams = {
+            ...params,
             bands: DEFAULT_FREQS.map((f) => ({ freqHz: f, gainDb: 0, q: 1.0 })),
-            bypass: params.bypass,
+            inputGainDb: 0,
+            outputGainDb: 0,
         };
         schedulePost(next);
-    }, [params.bypass, schedulePost]);
+    }, [params, schedulePost]);
 
     return (
         <section style={{
@@ -477,7 +692,8 @@ function EqPanel({ api }: { api: ZeusPluginApi }) {
             fontFamily: 'var(--font-sans, Inter, system-ui, sans-serif)',
             boxShadow: '0 1px 0 rgba(255,255,255,0.04) inset, 0 4px 12px rgba(0,0,0,0.25)',
         }}>
-            {/* Brass-plate header with Bypass + Reset */}
+            {/* Brass-plate header — title + reset + bypass. IN/OUT
+                meter readouts moved into the flanking columns below. */}
             <header style={{
                 position: 'relative',
                 padding: '8px 6px 10px',
@@ -501,19 +717,10 @@ function EqPanel({ api }: { api: ZeusPluginApi }) {
                 }}>10-Band Parametric EQ</h3>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{
-                        fontFamily: 'var(--font-mono, JetBrains Mono, ui-monospace, monospace)',
-                        fontSize: 10,
-                        color: 'var(--fg-2, #b8bcc3)',
-                        letterSpacing: 0.5,
-                    }}>
-                        IN {meters.inputPeakDb > -150 ? meters.inputPeakDb.toFixed(0) : '—'} · OUT {meters.outputPeakDb > -150 ? meters.outputPeakDb.toFixed(0) : '—'} dBFS
-                    </span>
-
                     <button
                         type="button"
                         onClick={resetAll}
-                        title="Reset all 10 bands to default frequencies, 0 dB gain, Q=1.0"
+                        title="Reset all 10 bands + I/O gain to defaults"
                         style={{
                             padding: '4px 10px',
                             fontFamily: 'var(--font-sans, Inter, system-ui, sans-serif)',
@@ -534,7 +741,7 @@ function EqPanel({ api }: { api: ZeusPluginApi }) {
                         type="button"
                         onClick={() => schedulePost({ ...params, bypass: !params.bypass })}
                         aria-pressed={params.bypass}
-                        title={params.bypass ? 'Currently bypassed — click to re-engage' : 'Click to bypass this block (audio flows through unchanged)'}
+                        title={params.bypass ? 'Currently bypassed — click to re-engage. I/O gain still applies in bypass.' : 'Click to bypass — audio flows through with I/O gain only.'}
                         style={{
                             padding: '4px 12px',
                             fontFamily: 'var(--font-sans, Inter, system-ui, sans-serif)',
@@ -556,23 +763,90 @@ function EqPanel({ api }: { api: ZeusPluginApi }) {
                 </div>
             </header>
 
+            {/* Main viz row — IN column · spectrum/curve · OUT column.
+                The I/O columns stay full-opacity during bypass since
+                their gain stage IS the only thing the operator is
+                using when the cascade is off. */}
             <div style={{
-                display: 'flex',
-                flexDirection: 'column',
+                display: 'grid',
+                gridTemplateColumns: 'auto 1fr auto',
                 gap: 12,
-                opacity: params.bypass ? 0.45 : 1,
-                transition: 'opacity 160ms ease-out',
-                pointerEvents: params.bypass ? 'none' : 'auto',
+                alignItems: 'stretch',
             }}>
-                {/* Combined transfer-function curve */}
-                <EqCurve params={params} />
+                {/* Input column: gain knob ABOVE meter */}
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '4px 6px',
+                    background: 'var(--bg-1, #14161a)',
+                    border: '1px solid var(--line-1, #2a2c30)',
+                    borderRadius: 4,
+                }}>
+                    <Knob
+                        label="In Gain"
+                        value={params.inputGainDb}
+                        min={-24}
+                        max={24}
+                        defaultValue={0}
+                        unit="dB"
+                        formatValue={(v) => (v > 0 ? '+' : '') + v.toFixed(1)}
+                        onChange={(v) => schedulePost({ ...params, inputGainDb: v })}
+                        size={40}
+                    />
+                    <VerticalMeter levelDb={meters.inputPeakDb} label="In" />
+                </div>
 
-                {/* 10 band columns */}
+                {/* Centre: live spectrum behind the EQ curve. Dims when
+                    bypassed because the cascade isn't shaping anything. */}
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    opacity: params.bypass ? 0.55 : 1,
+                    transition: 'opacity 160ms ease-out',
+                }}>
+                    <EqCurve params={params} inputSpec={inputSpec} outputSpec={outputSpec} />
+                </div>
+
+                {/* Output column: gain knob ABOVE meter */}
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '4px 6px',
+                    background: 'var(--bg-1, #14161a)',
+                    border: '1px solid var(--line-1, #2a2c30)',
+                    borderRadius: 4,
+                }}>
+                    <Knob
+                        label="Out Gain"
+                        value={params.outputGainDb}
+                        min={-24}
+                        max={24}
+                        defaultValue={0}
+                        unit="dB"
+                        formatValue={(v) => (v > 0 ? '+' : '') + v.toFixed(1)}
+                        onChange={(v) => schedulePost({ ...params, outputGainDb: v })}
+                        size={40}
+                    />
+                    <VerticalMeter levelDb={meters.outputPeakDb} label="Out" />
+                </div>
+            </div>
+
+            {/* 10 band columns — disabled when bypassed since the
+                cascade isn't running. I/O gain stays live above. */}
+            <div style={{
+                opacity: params.bypass ? 0.35 : 1,
+                pointerEvents: params.bypass ? 'none' : 'auto',
+                transition: 'opacity 160ms ease-out',
+            }}>
                 <div style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(10, minmax(0, 1fr))',
                     gap: 6,
-                    paddingTop: 4,
                 }}>
                     {params.bands.map((band, i) => (
                         <div
