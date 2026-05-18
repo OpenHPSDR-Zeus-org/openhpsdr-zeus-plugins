@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "com.openhpsdr.zeus.samples.noisegate",
+  "name": "Noise Gate (audio chain v2)",
+  "version": "0.1.0",
+  "author": "KB2UKA",
+  "description": "Voice noise gate for the Zeus audio chain. Peak-envelope detector with built-in 3 dB open/close hysteresis to prevent chatter, configurable hold time so the gate doesn't clamp shut between syllables, separate attack and release gain-slew time constants, adjustable range (depth of attenuation when closed), and an output gain trim for level-matching downstream blocks. Realtime managed C#, no native dependency. Live threshold-rail viz with state pill (OPEN / HOLD / CLOSED), vertical IN / OUT peak meters, brass-plate header with the audio-chain bypass switch.",
+  "homepage": "https://github.com/Kb2uka/openhpsdr-zeus",
+  "license": "GPL-2.0-or-later",
+  "sdk": {
+    "abi": 1,
+    "minVersion": "1.0.0"
+  },
+  "entrypoint": {
+    "assembly": "NoiseGate.dll",
+    "type": "Openhpsdr.Zeus.Samples.NoiseGate.NoiseGatePlugin"
+  },
+  "capabilities": [
+    "PersistSettings"
+  ],
+  "audio": {
+    "slot": "tx.pre-cfc",
+    "channels": 1,
+    "sampleRate": 48000
+  },
+  "ui": {
+    "modules": [
+      "ui/noisegate.es.js"
+    ],
+    "panels": [
+      {
+        "id": "noisegate.main",
+        "title": "Noise Gate",
+        "icon": "VolumeX",
+        "slot": "tx-audio-tools.chain"
+      }
+    ]
+  }
+}
