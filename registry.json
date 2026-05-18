@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generated": "2026-05-17T22:30:00Z",
+  "generated": "2026-05-18T19:32:49Z",
   "plugins": [
     {
       "id": "com.openhpsdr.zeus.plugins.antennagenius",
@@ -92,6 +92,14 @@
       "categories": ["audio"],
       "verified": true,
       "versions": [
+        {
+          "version": "0.2.0",
+          "sdkAbi": 1,
+          "sdkMinVersion": "1.0.0",
+          "platforms": ["any"],
+          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/eq-v0.2.0/eq-0.2.0.zip",
+          "sha256": "2e7af4a81bc33e39bfadb9768c4805455ecc24a19cab22e02ce4347df39ebf9c"
+        },
         {
           "version": "0.1.0",
           "sdkAbi": 1,

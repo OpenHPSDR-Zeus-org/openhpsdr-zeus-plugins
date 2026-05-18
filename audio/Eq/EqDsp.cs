@@ -1,14 +1,22 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// Zeus voice audio chain v1 — 10-Band Parametric EQ.
+// Zeus voice audio chain v2 — 10-Band Parametric EQ.
 // Copyright (C) 2025-2026 KB2UKA and contributors.
 //
 // 10 cascaded biquad peaking filters per the Audio EQ Cookbook
 // (Bristow-Johnson, https://webaudio.github.io/Audio-EQ-Cookbook/audio-eq-cookbook.html).
 // Each band: frequency (Hz), gain (dB), Q. Coefficients re-derived
 // only when the operator touches a parameter; per-sample inner loop
-// is just 5 multiplies + 4 adds per band (50 mul-adds per sample for
-// all 10 bands cascaded at 48 kHz = trivial CPU).
+// is just 5 multiplies + 4 adds per band.
+//
+// v0.2.0 additions on top of the v0.1.0 cascade:
+//   * Input + Output gain stages (-24 dB … +24 dB each, default 0 dB).
+//     Bypass-still-applies-gain semantics so the plugin can be used
+//     as a pure gain stage with the EQ cascade off.
+//   * Live FFT spectrum analyser. Maintains running 2048-sample
+//     buffers of input + output, Hann-windows and FFTs every 1024
+//     new samples (50 % overlap), log-bins to 256 bins over
+//     20 Hz – 20 kHz. Bin arrays are read by GET /api/plugins/{id}/spectrum.
 
 namespace Openhpsdr.Zeus.Samples.Eq;
 
@@ -52,6 +60,33 @@ public sealed class EqDsp
 
     public bool Bypass { get; set; } = false;
 
+    /// <summary>
+    /// Input gain, applied to incoming samples BEFORE the band cascade.
+    /// Range clamped to [-24, +24] dB on assignment. Default 0 dB.
+    /// The IN meter (<see cref="LastInputPeakDb"/>) reads the
+    /// post-input-gain signal so the operator sees what the DSP
+    /// actually receives — not the raw mic level upstream.
+    /// </summary>
+    public float InputGainDb
+    {
+        get => _inputGainDb;
+        set => _inputGainDb = MathF.Max(-24f, MathF.Min(24f, value));
+    }
+    private float _inputGainDb = 0f;
+
+    /// <summary>
+    /// Output gain, applied AFTER the band cascade (or after bypass
+    /// fast-path). Range clamped to [-24, +24] dB. Default 0 dB. The
+    /// OUT meter reads the post-output-gain signal so it shows what
+    /// hits the next plugin in the chain.
+    /// </summary>
+    public float OutputGainDb
+    {
+        get => _outputGainDb;
+        set => _outputGainDb = MathF.Max(-24f, MathF.Min(24f, value));
+    }
+    private float _outputGainDb = 0f;
+
     // Last-block readbacks for metering (input peak, output peak).
     public float LastInputPeakDb  { get; private set; } = MinDb;
     public float LastOutputPeakDb { get; private set; } = MinDb;
@@ -59,10 +94,68 @@ public sealed class EqDsp
     private float _sampleRate = 48000f;
     private bool _coefDirty = true;
 
+    // -------------------------------------------------------------------
+    // Live spectrum analyser state.
+    //
+    // We keep two N=2048 ring buffers (input + output), accumulate new
+    // samples into them, and every HOP=1024 new samples trigger a Hann-
+    // windowed FFT. Magnitudes are converted to dB and log-binned to
+    // BinCount=256 bins covering 20 Hz – 20 kHz. The bin arrays are
+    // read by the REST handler; we deliberately don't lock — single
+    // writer (audio thread), single reader (request thread), a torn
+    // read shows at most one block of visual flicker.
+    // -------------------------------------------------------------------
+
+    public const int FftSize = 2048;
+    public const int FftHop  = 1024;
+    public const int BinCount = 256;
+    public const float SpectrumFMinHz = 20f;
+    public const float SpectrumFMaxHz = 20_000f;
+    public const float SpectrumDbFloor = -120f;
+
+    private readonly float[] _inHistory  = new float[FftSize];
+    private readonly float[] _outHistory = new float[FftSize];
+    private int _inHistoryPos = 0;   // write cursor, modulo FftSize
+    private int _outHistoryPos = 0;
+    private int _samplesSinceLastFft = 0;
+
+    // Pre-computed Hann window (built lazily on first Initialize so a
+    // ctor-time computation isn't required).
+    private readonly float[] _hann = new float[FftSize];
+
+    // Pre-allocated FFT workspaces — the realtime loop must not GC.
+    private readonly float[] _fftRe = new float[FftSize];
+    private readonly float[] _fftIm = new float[FftSize];
+
+    // Log-bin → FFT-bin mapping. binToFftLow[k] is the first FFT bin
+    // index that falls into log-bin k; binToFftHigh[k] is the
+    // exclusive upper bound. Pre-computed at Initialize time.
+    private readonly int[] _binToFftLow  = new int[BinCount];
+    private readonly int[] _binToFftHigh = new int[BinCount];
+
+    /// <summary>
+    /// Last computed input-side spectrum, in dB per bin (BinCount bins
+    /// covering 20 Hz – 20 kHz log-spaced). <see cref="MinDb"/>-floor
+    /// when no signal. Realtime audio thread updates this; REST
+    /// handler reads it without locking.
+    /// </summary>
+    public readonly float[] LastInputSpectrumDb  = new float[BinCount];
+
+    /// <summary>Last computed output-side spectrum, dB per bin. See <see cref="LastInputSpectrumDb"/>.</summary>
+    public readonly float[] LastOutputSpectrumDb = new float[BinCount];
+
     public EqDsp()
     {
         for (int i = 0; i < BandCount; i++)
             Bands[i] = new Band { FrequencyHz = DefaultFrequencies[i], GainDb = 0f, Q = 1.0f };
+
+        // Floor the spectrum arrays so an immediate GET before any audio
+        // arrives doesn't return uninitialised noise.
+        for (int i = 0; i < BinCount; i++)
+        {
+            LastInputSpectrumDb[i]  = SpectrumDbFloor;
+            LastOutputSpectrumDb[i] = SpectrumDbFloor;
+        }
     }
 
     public void Initialize(int sampleRateHz)
@@ -71,6 +164,8 @@ public sealed class EqDsp
             throw new ArgumentOutOfRangeException(nameof(sampleRateHz), "sample rate must be positive");
         _sampleRate = sampleRateHz;
         _coefDirty = true;
+        BuildHannWindow();
+        BuildLogBinMap();
         Reset();
     }
 
@@ -82,12 +177,55 @@ public sealed class EqDsp
             Bands[i].Z1 = 0f;
             Bands[i].Z2 = 0f;
         }
+        Array.Clear(_inHistory);
+        Array.Clear(_outHistory);
+        _inHistoryPos = 0;
+        _outHistoryPos = 0;
+        _samplesSinceLastFft = 0;
         LastInputPeakDb = MinDb;
         LastOutputPeakDb = MinDb;
     }
 
     /// <summary>Mark coefficients dirty — recomputed at the start of the next Process block.</summary>
     public void MarkParamsDirty() => _coefDirty = true;
+
+    private void BuildHannWindow()
+    {
+        // Hann: w[n] = 0.5 * (1 - cos(2π n / (N-1)))
+        for (int n = 0; n < FftSize; n++)
+        {
+            _hann[n] = 0.5f * (1f - MathF.Cos(2f * MathF.PI * n / (FftSize - 1)));
+        }
+    }
+
+    private void BuildLogBinMap()
+    {
+        // Map BinCount log-spaced output bins to the FFT's linear bins.
+        // FFT bin k corresponds to frequency k * fs / FftSize. We want
+        // log-spaced bin EDGES from SpectrumFMinHz to SpectrumFMaxHz,
+        // then each output-bin averages the FFT magnitudes that fall
+        // inside its edge pair.
+        float fNyquist = _sampleRate * 0.5f;
+        float fMax = MathF.Min(SpectrumFMaxHz, fNyquist);
+        float fMin = SpectrumFMinHz;
+        float lnLo = MathF.Log(fMin);
+        float lnHi = MathF.Log(fMax);
+        float binWidthHz = _sampleRate / FftSize;
+        for (int k = 0; k < BinCount; k++)
+        {
+            float t0 = (float)k / BinCount;
+            float t1 = (float)(k + 1) / BinCount;
+            float fLow  = MathF.Exp(lnLo + t0 * (lnHi - lnLo));
+            float fHigh = MathF.Exp(lnLo + t1 * (lnHi - lnLo));
+            int kLow  = (int)MathF.Floor(fLow / binWidthHz);
+            int kHigh = (int)MathF.Ceiling(fHigh / binWidthHz);
+            if (kLow < 1) kLow = 1;                      // skip DC
+            if (kHigh > FftSize / 2) kHigh = FftSize / 2;
+            if (kHigh <= kLow) kHigh = kLow + 1;
+            _binToFftLow[k] = kLow;
+            _binToFftHigh[k] = kHigh;
+        }
+    }
 
     /// <summary>
     /// Recompute peaking-EQ biquad coefficients for all 10 bands using
@@ -141,18 +279,33 @@ public sealed class EqDsp
             throw new ArgumentException("input and output spans must be the same length");
         if (input.Length == 0) return;
 
-        // Bypass fast-path — copy + identity meters, skip filters.
+        // Convert gain dB → linear once per block; applied per sample
+        // below. Negligible MathF.Pow cost amortised over a whole block.
+        float inGainLin  = DbToLinear(_inputGainDb);
+        float outGainLin = DbToLinear(_outputGainDb);
+
         if (Bypass)
         {
-            input.CopyTo(output);
-            float peak = MinDb;
-            for (int i = 0; i < input.Length; i++)
+            // Bypass fast-path: skip the band cascade BUT still apply
+            // input + output gain so the plugin can be used as a pure
+            // gain stage when bypassed. Meters reflect post-gain
+            // signal on both ends.
+            float ipeak = MinDb;
+            float opeak = MinDb;
+            for (int n = 0; n < input.Length; n++)
             {
-                float dbA = LinearToDb(MathF.Abs(input[i]));
-                if (dbA > peak) peak = dbA;
+                float x = input[n] * inGainLin;
+                float y = x * outGainLin;
+                output[n] = y;
+                float xa = LinearToDb(MathF.Abs(x));
+                float ya = LinearToDb(MathF.Abs(y));
+                if (xa > ipeak) ipeak = xa;
+                if (ya > opeak) opeak = ya;
+                AccumulateForFft(x, y);
             }
-            LastInputPeakDb = peak;
-            LastOutputPeakDb = peak;
+            LastInputPeakDb = ipeak;
+            LastOutputPeakDb = opeak;
+            MaybeComputeSpectra();
             return;
         }
 
@@ -169,11 +322,13 @@ public sealed class EqDsp
         // well under the per-tick CPU budget.
         for (int n = 0; n < input.Length; n++)
         {
-            float x = input[n];
-            float xAbsDb = LinearToDb(MathF.Abs(x));
+            // Input gain stage. xMeter = post-input-gain sample feeds
+            // the IN meter and the input-side FFT history.
+            float xMeter = input[n] * inGainLin;
+            float xAbsDb = LinearToDb(MathF.Abs(xMeter));
             if (xAbsDb > inputPeakDb) inputPeakDb = xAbsDb;
 
-            float y = x;
+            float y = xMeter;
             for (int i = 0; i < BandCount; i++)
             {
                 var b = Bands[i];
@@ -186,14 +341,101 @@ public sealed class EqDsp
                 b.Z2 = b.B2 * y - b.A2 * yi;
                 y = yi;
             }
-            output[n] = y;
 
-            float yAbsDb = LinearToDb(MathF.Abs(y));
+            // Output gain stage. yMeter feeds the OUT meter and the
+            // output-side FFT history.
+            float yMeter = y * outGainLin;
+            output[n] = yMeter;
+            float yAbsDb = LinearToDb(MathF.Abs(yMeter));
             if (yAbsDb > outputPeakDb) outputPeakDb = yAbsDb;
+
+            AccumulateForFft(xMeter, yMeter);
         }
 
         LastInputPeakDb = inputPeakDb;
         LastOutputPeakDb = outputPeakDb;
+        MaybeComputeSpectra();
+    }
+
+    /// <summary>
+    /// Append one (input, output) sample pair to the ring history
+    /// buffers. Branch-free pointer increment via masked wrap (FftSize
+    /// is a power of two; the runtime const lets the JIT fold the
+    /// modulo into an AND).
+    /// </summary>
+    private void AccumulateForFft(float xIn, float yOut)
+    {
+        _inHistory[_inHistoryPos] = xIn;
+        _outHistory[_outHistoryPos] = yOut;
+        _inHistoryPos = (_inHistoryPos + 1) & (FftSize - 1);
+        _outHistoryPos = (_outHistoryPos + 1) & (FftSize - 1);
+        _samplesSinceLastFft++;
+    }
+
+    /// <summary>
+    /// If we've accumulated at least <see cref="FftHop"/> new samples
+    /// since the last FFT, run both input + output FFTs and refresh
+    /// the public spectrum arrays. Called once per Process block (NOT
+    /// per sample) so the cost is amortised over hundreds of samples.
+    /// </summary>
+    private void MaybeComputeSpectra()
+    {
+        if (_samplesSinceLastFft < FftHop) return;
+        _samplesSinceLastFft = 0;
+        ComputeOneSpectrum(_inHistory,  _inHistoryPos,  LastInputSpectrumDb);
+        ComputeOneSpectrum(_outHistory, _outHistoryPos, LastOutputSpectrumDb);
+    }
+
+    /// <summary>
+    /// Compute one Hann-windowed FFT from a ring history buffer and
+    /// log-bin it into the supplied dB-bin destination array. The
+    /// ring's current write cursor is the start of the "oldest" sample
+    /// in the FFT window; the FFT walks N samples forward from there
+    /// (wrapping modulo N).
+    /// </summary>
+    private void ComputeOneSpectrum(float[] history, int writeCursor, float[] dbBins)
+    {
+        // Pack the most-recent FftSize samples into _fftRe with the
+        // Hann window applied. Most-recent means: the LAST sample in
+        // the FFT window is at index (writeCursor - 1) mod FftSize;
+        // the FIRST is at writeCursor. Walk N forward from writeCursor.
+        int mask = FftSize - 1;
+        for (int i = 0; i < FftSize; i++)
+        {
+            int idx = (writeCursor + i) & mask;
+            _fftRe[i] = history[idx] * _hann[i];
+            _fftIm[i] = 0f;
+        }
+
+        RealFft.Forward(_fftRe, _fftIm, FftSize);
+
+        // Bin magnitudes (avg over the FFT-bin range that falls in
+        // each output bin) and convert to dB.
+        // Magnitude scaling: divide by N/2 so a pure sine at full scale
+        // shows ≈ 0 dBFS. Hann coherent gain ≈ 0.5; we compensate by
+        // dividing by (N/2 * 0.5) = N/4. Close enough for visualisation.
+        float magScale = 4f / FftSize;
+        for (int k = 0; k < BinCount; k++)
+        {
+            int kLow = _binToFftLow[k];
+            int kHigh = _binToFftHigh[k];
+            float sumMag = 0f;
+            int count = 0;
+            for (int kk = kLow; kk < kHigh; kk++)
+            {
+                float re = _fftRe[kk];
+                float im = _fftIm[kk];
+                float mag = MathF.Sqrt(re * re + im * im);
+                sumMag += mag;
+                count++;
+            }
+            float avgMag = count > 0 ? (sumMag / count) * magScale : 0f;
+            float db = avgMag > 1e-10f
+                ? 20f * MathF.Log10(avgMag)
+                : SpectrumDbFloor;
+            if (db < SpectrumDbFloor) db = SpectrumDbFloor;
+            dbBins[k] = db;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -206,4 +448,6 @@ public sealed class EqDsp
         if (linear <= 1e-10f) return MinDb;
         return MathF.Log(linear) * 8.685889638065035f; // 20 / ln(10)
     }
+
+    internal static float DbToLinear(float db) => MathF.Pow(10f, db / 20f);
 }
