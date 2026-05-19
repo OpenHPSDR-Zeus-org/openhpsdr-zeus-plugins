@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "com.openhpsdr.zeus.samples.reverb",
-  "name": "Reverb (audio chain v1)",
-  "version": "0.1.0",
+  "name": "Reverb (audio chain v2)",
+  "version": "0.2.0",
   "author": "KB2UKA",
-  "description": "Subtle Schroeder reverb — fifth and final block in the Zeus voice audio chain v1 per issue #332. Four parallel comb filters with low-pass damping in the feedback path produce the decaying density; two series allpass filters diffuse the comb output so the tail doesn't ring. Tuned for ham-radio TX sweetening, not music — Mix defaults conservative so it sits behind the voice rather than washing over it. Realtime managed C#, no native dependency.",
+  "description": "Subtle Schroeder reverb — fifth and final block in the Zeus voice audio chain per issue #332. Four parallel comb filters with low-pass damping in the feedback path produce the decaying density; two series allpass filters diffuse the comb output so the tail doesn't ring. Tuned for ham-radio TX sweetening, not music — Mix defaults conservative so it sits behind the voice rather than washing over it. v0.2.0 adds Input + Output gain trims and live vertical IN/OUT peak meters flanking the impulse-response centerpiece. Realtime managed C#, no native dependency.",
   "homepage": "https://github.com/Kb2uka/openhpsdr-zeus",
   "license": "GPL-2.0-or-later",
   "sdk": {

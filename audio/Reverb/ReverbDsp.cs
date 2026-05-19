@@ -54,6 +54,12 @@ public sealed class ReverbDsp
     /// sweetening, not music production.</summary>
     public float MixPct { get; set; } = 12f;
 
+    /// <summary>Input gain trim, -24..+12 dB (v0.2.0).</summary>
+    public float InputDb { get; set; } = 0f;
+
+    /// <summary>Output gain trim, -24..+12 dB (v0.2.0).</summary>
+    public float OutputDb { get; set; } = 0f;
+
     public bool Bypass { get; set; } = false;
 
     // -----------------------------------------------------------------------
@@ -219,6 +225,8 @@ public sealed class ReverbDsp
 
         float mix     = MathF.Max(0f, MathF.Min(1f, MixPct * 0.01f));
         float dryGain = 1f - mix;
+        float inLin   = DbToLinear(InputDb);  // v0.2.0 — input trim
+        float outLin  = DbToLinear(OutputDb); // v0.2.0 — output trim
         float fb      = _combFeedback;
         float damp    = _combDamp;
         float oneMinusDamp = 1f - damp;
@@ -250,9 +258,13 @@ public sealed class ReverbDsp
 
         for (int n = 0; n < input.Length; n++)
         {
-            float x = input[n];
-            float xAbsDb = LinearToDb(MathF.Abs(x));
-            if (xAbsDb > inputPeakDb) inputPeakDb = xAbsDb;
+            // IN meter — raw input level BEFORE input trim.
+            float raw = input[n];
+            float rawAbsDb = LinearToDb(MathF.Abs(raw));
+            if (rawAbsDb > inputPeakDb) inputPeakDb = rawAbsDb;
+
+            // Apply input trim (v0.2.0) before the effect.
+            float x = raw * inLin;
 
             // Pre-delay tap. When preLen == 0 the ring degenerates to a direct
             // pass through (we just feed x straight into the combs).
@@ -319,7 +331,9 @@ public sealed class ReverbDsp
             float wetAbsDb = LinearToDb(MathF.Abs(wet));
             if (wetAbsDb > wetPeakDb) wetPeakDb = wetAbsDb;
 
-            float y = dryGain * x + mix * wet;
+            // Wet/dry blend, then output trim (v0.2.0).
+            float mixed = dryGain * x + mix * wet;
+            float y = mixed * outLin;
             output[n] = y;
 
             float yAbsDb = LinearToDb(MathF.Abs(y));
@@ -349,4 +363,6 @@ public sealed class ReverbDsp
         if (linear <= 1e-10f) return MinDb;
         return MathF.Log(linear) * 8.685889638065035f;
     }
+
+    internal static float DbToLinear(float db) => MathF.Exp(db * 0.11512925464970228f);
 }
