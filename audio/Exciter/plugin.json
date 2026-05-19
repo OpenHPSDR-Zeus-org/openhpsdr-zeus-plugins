@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "com.openhpsdr.zeus.samples.exciter",
-  "name": "Aural Exciter (audio chain v1)",
-  "version": "0.1.0",
+  "name": "Aural Exciter (audio chain v2)",
+  "version": "0.2.0",
   "author": "KB2UKA",
-  "description": "Aural-Exciter-style top-end harmonic enhancement — third of the Zeus voice audio chain v1 blocks per issue #332. Biquad high-pass filter feeds a tanh waveshaper to synthesise upper harmonics, then mixes the harmonics back over the dry signal. Realtime managed C#, no native dependency. Live SVG saturation-curve viz, three rotary knobs (Frequency / Drive / Mix), bypass toggle.",
+  "description": "Aural-Exciter-style top-end harmonic enhancement — third of the Zeus voice audio chain blocks per issue #332. Biquad high-pass filter feeds a tanh waveshaper to synthesise upper harmonics, then mixes the harmonics back over the dry signal. v0.2.0 adds Input + Output gain trims and live vertical IN/OUT peak meters flanking the saturation-curve centerpiece. Realtime managed C#, no native dependency.",
   "homepage": "https://github.com/Kb2uka/openhpsdr-zeus",
   "license": "GPL-2.0-or-later",
   "sdk": {

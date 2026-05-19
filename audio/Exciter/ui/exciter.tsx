@@ -19,6 +19,8 @@ interface ExciterParams {
     freqHz: number;
     driveDb: number;
     mixPct: number;
+    inputDb: number;
+    outputDb: number;
     bypass: boolean;
 }
 
@@ -32,10 +34,72 @@ const DEFAULT_PARAMS: ExciterParams = {
     freqHz: 5000,
     driveDb: 6,
     mixPct: 20,
+    inputDb: 0,
+    outputDb: 0,
     bypass: false,
 };
 
 const DEFAULT_METERS: ExciterMeters = { inputPeakDb: -200, outputPeakDb: -200, harmonicLevelDb: -200 };
+
+const METER_FLOOR_DB = -60;
+
+// ---------------------------------------------------------------
+// Vertical peak meter with peak-hold tick (v0.2.0 addition).
+// ---------------------------------------------------------------
+function VerticalMeter({ label, peakDb, ngId }: { label: string; peakDb: number; ngId: string }) {
+    const W = 26;
+    const H = 140;
+    const floor = METER_FLOOR_DB;
+
+    const [holdDb, setHoldDb] = useState<number>(floor);
+    const lastUpdateRef = useRef<number>(performance.now());
+    useEffect(() => {
+        const now = performance.now();
+        const dt = (now - lastUpdateRef.current) / 1000;
+        lastUpdateRef.current = now;
+        setHoldDb((prev) => Math.max(floor, Math.max(peakDb, prev - 40 * dt)));
+    }, [peakDb, floor]);
+
+    const dbToY = (db: number) => H - ((Math.max(floor, Math.min(0, db)) - floor) / (0 - floor)) * H;
+    const peakY = dbToY(peakDb);
+    const holdY = dbToY(holdDb);
+    const fillH = H - peakY;
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+            <span style={{
+                fontFamily: 'var(--font-sans, Inter, system-ui, sans-serif)',
+                fontSize: 10, letterSpacing: 0.6, textTransform: 'uppercase',
+                color: 'var(--fg-2, #b8bcc3)', fontWeight: 500,
+            }}>{label}</span>
+            <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H}
+                 style={{ background: 'var(--bg-inset, #0e1014)', border: '1px solid var(--line-1, #2a2c30)', borderRadius: 3 }}
+                 role="meter" aria-label={`${label} ${peakDb.toFixed(1)} dBFS`}>
+                <defs>
+                    <linearGradient id={`mtr-${ngId}`} x1={0} y1={1} x2={0} y2={0}>
+                        <stop offset="0%"   stopColor="var(--accent, #4a9eff)" />
+                        <stop offset="70%"  stopColor="var(--accent, #4a9eff)" />
+                        <stop offset="85%"  stopColor="var(--power, #ffc93a)" />
+                        <stop offset="100%" stopColor="var(--tx, #e63a2b)" />
+                    </linearGradient>
+                </defs>
+                {[-12, -24, -36, -48].map((db) => (
+                    <line key={db} x1={2} y1={dbToY(db)} x2={W - 2} y2={dbToY(db)}
+                          stroke="var(--line-1, #2a2c30)" strokeWidth={0.5} opacity={0.6} />
+                ))}
+                {fillH > 0 && <rect x={3} y={peakY} width={W - 6} height={fillH} fill={`url(#mtr-${ngId})`} />}
+                {holdDb > floor + 1 && (
+                    <line x1={2} y1={holdY} x2={W - 2} y2={holdY} stroke="var(--accent, #4a9eff)" strokeWidth={1.5} opacity={0.9} />
+                )}
+            </svg>
+            <span style={{
+                fontFamily: 'var(--font-mono, JetBrains Mono, ui-monospace, monospace)',
+                fontSize: 10, color: 'var(--fg-1, #d6d8dc)', fontVariantNumeric: 'tabular-nums',
+                minWidth: 36, textAlign: 'center',
+            }}>{peakDb > -150 ? peakDb.toFixed(0) : '—'} dB</span>
+        </div>
+    );
+}
 
 // ---------------------------------------------------------------
 // SVG rotary knob — same shape as Compressor / EQ (the chain-plugin
@@ -301,10 +365,12 @@ function ExciterPanel({ api }: { api: ZeusPluginApi }) {
         postDebounceRef.current = window.setTimeout(() => {
             const last = lastPostedRef.current;
             const patch: Partial<ExciterParams> = {};
-            if (next.freqHz  !== last.freqHz)  patch.freqHz  = next.freqHz;
-            if (next.driveDb !== last.driveDb) patch.driveDb = next.driveDb;
-            if (next.mixPct  !== last.mixPct)  patch.mixPct  = next.mixPct;
-            if (next.bypass  !== last.bypass)  patch.bypass  = next.bypass;
+            if (next.freqHz   !== last.freqHz)   patch.freqHz   = next.freqHz;
+            if (next.driveDb  !== last.driveDb)  patch.driveDb  = next.driveDb;
+            if (next.mixPct   !== last.mixPct)   patch.mixPct   = next.mixPct;
+            if (next.inputDb  !== last.inputDb)  patch.inputDb  = next.inputDb;
+            if (next.outputDb !== last.outputDb) patch.outputDb = next.outputDb;
+            if (next.bypass   !== last.bypass)   patch.bypass   = next.bypass;
             if (Object.keys(patch).length === 0) return;
             void api.callBackend('POST', '/params', patch).then(async (res) => {
                 if (res.ok) {
@@ -397,8 +463,10 @@ function ExciterPanel({ api }: { api: ZeusPluginApi }) {
                 transition: 'opacity 160ms ease-out',
                 pointerEvents: params.bypass ? 'none' : 'auto',
             }}>
+                <VerticalMeter label="IN" peakDb={meters.inputPeakDb} ngId="exc-in" />
+
                 {/* Saturation curve */}
-                <div style={{ flex: '1 1 280px', minWidth: 240, maxWidth: 360 }}>
+                <div style={{ flex: '1 1 240px', minWidth: 220, maxWidth: 340 }}>
                     <SaturationCurve driveDb={params.driveDb} />
                     <div style={{
                         fontFamily: 'var(--font-mono, JetBrains Mono, ui-monospace, monospace)',
@@ -411,8 +479,15 @@ function ExciterPanel({ api }: { api: ZeusPluginApi }) {
                     </div>
                 </div>
 
-                {/* Knob column */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 4 }}>
+                <VerticalMeter label="OUT" peakDb={meters.outputPeakDb} ngId="exc-out" />
+
+                {/* Knob grid — 2×3 (Frequency / Drive / Mix on top, Input / Output / blank on bottom) */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, minmax(68px, 1fr))',
+                    gap: 12,
+                    paddingTop: 4,
+                }}>
                     <Knob
                         label="Frequency"
                         value={params.freqHz}
@@ -443,6 +518,26 @@ function ExciterPanel({ api }: { api: ZeusPluginApi }) {
                         unit="%"
                         formatValue={(v) => v.toFixed(0)}
                         onChange={(v) => schedulePost({ ...params, mixPct: v })}
+                    />
+                    <Knob
+                        label="Input"
+                        value={params.inputDb}
+                        min={-24}
+                        max={12}
+                        defaultValue={0}
+                        unit="dB"
+                        formatValue={(v) => v >= 0 ? `+${v.toFixed(1)}` : v.toFixed(1)}
+                        onChange={(v) => schedulePost({ ...params, inputDb: v })}
+                    />
+                    <Knob
+                        label="Output"
+                        value={params.outputDb}
+                        min={-24}
+                        max={12}
+                        defaultValue={0}
+                        unit="dB"
+                        formatValue={(v) => v >= 0 ? `+${v.toFixed(1)}` : v.toFixed(1)}
+                        onChange={(v) => schedulePost({ ...params, outputDb: v })}
                     />
                 </div>
             </div>

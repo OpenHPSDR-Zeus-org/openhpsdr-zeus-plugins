@@ -35,6 +35,8 @@ public sealed class ExciterDsp
     public float FrequencyHz { get; set; } = 5000f;   // HP cutoff, typ 2000-8000
     public float DriveDb     { get; set; } = 6f;      // Pre-saturation gain, typ 0-24
     public float MixPercent  { get; set; } = 20f;     // Wet/dry blend, 0-100
+    public float InputDb     { get; set; } = 0f;      // Input gain trim, -24..+12 dB (v0.2.0)
+    public float OutputDb    { get; set; } = 0f;      // Output gain trim, -24..+12 dB (v0.2.0)
     public bool  Bypass      { get; set; } = false;
 
     // -----------------------------------------------------------------------
@@ -136,6 +138,8 @@ public sealed class ExciterDsp
         // Snapshot once per block.
         float driveLin = DbToLinear(DriveDb);
         float mix = MathF.Max(0f, MathF.Min(1f, MixPercent * 0.01f));
+        float inLin  = DbToLinear(InputDb);   // v0.2.0 — input trim
+        float outLin = DbToLinear(OutputDb);  // v0.2.0 — output trim
 
         float z1 = _z1;
         float z2 = _z2;
@@ -146,9 +150,13 @@ public sealed class ExciterDsp
 
         for (int n = 0; n < input.Length; n++)
         {
-            float x = input[n];
-            float xAbsDb = LinearToDb(MathF.Abs(x));
-            if (xAbsDb > inputPeakDb) inputPeakDb = xAbsDb;
+            // IN meter — raw input level BEFORE input trim.
+            float raw = input[n];
+            float rawAbsDb = LinearToDb(MathF.Abs(raw));
+            if (rawAbsDb > inputPeakDb) inputPeakDb = rawAbsDb;
+
+            // Apply input trim (v0.2.0) before the effect.
+            float x = raw * inLin;
 
             // Biquad HP — Direct-Form-II Transposed.
             float hp = _b0 * x + z1;
@@ -166,7 +174,10 @@ public sealed class ExciterDsp
             // Mix back over the DRY signal. The dry signal is untouched, so
             // bass / low-mids / mid-range stay pristine. Only the harmonics
             // synthesised from the HP-filtered band get added on top.
-            float y = x + wet * mix;
+            float mixed = x + wet * mix;
+
+            // Apply output trim (v0.2.0) — OUT meter reflects post-trim.
+            float y = mixed * outLin;
             output[n] = y;
 
             float yAbsDb = LinearToDb(MathF.Abs(y));
