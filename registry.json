@@ -141,6 +141,14 @@
       "verified": true,
       "versions": [
         {
+          "version": "0.2.0",
+          "sdkAbi": 1,
+          "sdkMinVersion": "1.0.0",
+          "platforms": ["any"],
+          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/exciter-v0.2.0/exciter-0.2.0.zip",
+          "sha256": "ea4ebd897eecb08d814a1c89b2a62ae394b755d7e566495a79c5509f27997a1e"
+        },
+        {
           "version": "0.1.0",
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
@@ -161,6 +169,14 @@
       "verified": true,
       "versions": [
         {
+          "version": "0.2.0",
+          "sdkAbi": 1,
+          "sdkMinVersion": "1.0.0",
+          "platforms": ["any"],
+          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/bass-v0.2.0/bass-0.2.0.zip",
+          "sha256": "3a4f584fc33aab3f2d61698f1a2239c589883c7c3158765eb272a96395d49ff3"
+        },
+        {
           "version": "0.1.0",
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
@@ -180,6 +196,14 @@
       "categories": ["audio"],
       "verified": true,
       "versions": [
+        {
+          "version": "0.2.0",
+          "sdkAbi": 1,
+          "sdkMinVersion": "1.0.0",
+          "platforms": ["any"],
+          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/reverb-v0.2.0/reverb-0.2.0.zip",
+          "sha256": "bc9d643c60968238a1bfb031e2d1b02d9a8c29b278aba18488d6afb4ed07de64"
+        },
         {
           "version": "0.1.0",
           "sdkAbi": 1,
