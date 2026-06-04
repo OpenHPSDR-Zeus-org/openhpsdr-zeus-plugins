@@ -7,7 +7,7 @@
 // tap callback) — and is cleaner than blocking the audio thread on disk IO.
 // Copyright (C) 2026 contributors.
 
-namespace Openhpsdr.Zeus.Samples.RxRecorder;
+namespace Openhpsdr.Zeus.Samples.Recorder;
 
 public sealed class RecorderEngine : IDisposable
 {
@@ -55,8 +55,9 @@ public sealed class RecorderEngine : IDisposable
         }
     }
 
-    /// <summary>Audio-thread entry. No alloc, no lock, no IO.</summary>
-    public void OnRxAudio(ReadOnlySpan<float> samples)
+    /// <summary>Audio-thread entry for the currently-selected source. No alloc,
+    /// no lock, no IO.</summary>
+    public void Feed(ReadOnlySpan<float> samples)
     {
         // Cheap peak for the level meter (always, even when idle).
         float peak = 0f;
@@ -122,8 +123,18 @@ public sealed class RecorderEngine : IDisposable
         long samples = sink?.SampleCount ?? 0;
         sink?.Dispose();
 
-        var file = _currentFile is null ? null : Path.GetFileName(_currentFile);
+        var path = _currentFile;
+        var file = path is null ? null : Path.GetFileName(path);
         _currentFile = null;
+
+        // The selected source produced nothing (e.g. TX MIC with no live mic,
+        // or TX AIR with the TX monitor off) — discard the empty 44-byte WAV
+        // rather than litter the folder with useless headers.
+        if (samples == 0 && path is not null)
+        {
+            try { File.Delete(path); } catch { /* best effort */ }
+        }
+
         return file is null ? null : (file, samples);
     }
 

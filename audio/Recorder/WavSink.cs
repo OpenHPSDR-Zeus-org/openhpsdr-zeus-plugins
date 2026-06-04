@@ -7,7 +7,7 @@
 
 using System.Text;
 
-namespace Openhpsdr.Zeus.Samples.RxRecorder;
+namespace Openhpsdr.Zeus.Samples.Recorder;
 
 public sealed class WavSink : IDisposable
 {

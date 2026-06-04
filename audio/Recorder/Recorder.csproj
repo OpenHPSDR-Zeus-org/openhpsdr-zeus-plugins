@@ -4,8 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>RxRecorder</AssemblyName>
-    <RootNamespace>Openhpsdr.Zeus.Samples.RxRecorder</RootNamespace>
+    <AssemblyName>Recorder</AssemblyName>
+    <RootNamespace>Openhpsdr.Zeus.Samples.Recorder</RootNamespace>
     <IsPackable>false</IsPackable>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
   </PropertyGroup>

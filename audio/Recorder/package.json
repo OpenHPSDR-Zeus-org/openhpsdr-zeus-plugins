@@ -1,5 +1,5 @@
 {
-  "name": "rxrecorder-ui",
+  "name": "recorder-ui",
   "version": "0.1.0",
   "description": "Openhpsdr-Zeus RX Recorder RX audio filter plugin UI module build harness",
   "private": true,
