@@ -16,7 +16,8 @@
     "type": "Openhpsdr.Zeus.Samples.Rtty.RttyPlugin"
   },
   "capabilities": [
-    "PersistSettings"
+    "PersistSettings",
+    "ControlRadio"
   ],
   "ui": {
     "modules": [

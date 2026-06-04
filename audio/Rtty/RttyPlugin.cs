@@ -24,6 +24,7 @@ public sealed class RttyPlugin : IZeusPlugin, IRxAudioTapPlugin, IBackendPlugin
 
     private IPluginContext? _ctx;
     private RttyDemod? _demod;
+    private RttyTx? _tx;
 
     // Decoded text drained off the demod's lock-free queue on the HTTP thread.
     // The audio thread never touches this lock — it only enqueues chars.
@@ -49,7 +50,11 @@ public sealed class RttyPlugin : IZeusPlugin, IRxAudioTapPlugin, IBackendPlugin
             _markHz, _shiftHz, _baud, _reverse, _usos);
     }
 
-    public Task ShutdownAsync(CancellationToken ct) => Task.CompletedTask;
+    public Task ShutdownAsync(CancellationToken ct)
+    {
+        _tx?.Dispose();
+        return Task.CompletedTask;
+    }
 
     // ------------------------------------------------------------------ RX tap
 
@@ -60,6 +65,22 @@ public sealed class RttyPlugin : IZeusPlugin, IRxAudioTapPlugin, IBackendPlugin
         var d = new RttyDemod(host.CurrentSampleRate, _markHz, _shiftHz, _baud);
         d.SetParams(_markHz, _shiftHz, _baud, _reverse, _usos);
         _demod = d;
+
+        // TX is available only when the host granted ControlRadio (keying) AND
+        // exposes a playback sink (on-air inject). Both null in, e.g., a host
+        // without the radio-control seam → receive-only.
+        _tx?.Dispose();
+        if (_ctx?.Playback is { } sink && _ctx?.RadioController is { } radio)
+        {
+            _tx = new RttyTx(sink, radio, host.CurrentSampleRate,
+                msg => _ctx?.Logger.LogWarning("{Msg}", msg));
+            _ctx?.Logger.LogInformation("RTTY TX ready (ControlRadio + playback granted)");
+        }
+        else
+        {
+            _ctx?.Logger.LogInformation("RTTY receive-only (TX needs ControlRadio + playback)");
+        }
+
         _ctx?.Logger.LogInformation("RTTY tap init: SR={SampleRate} Hz", host.CurrentSampleRate);
         return Task.CompletedTask;
     }
@@ -80,6 +101,27 @@ public sealed class RttyPlugin : IZeusPlugin, IRxAudioTapPlugin, IBackendPlugin
         endpoints.MapGet("status", GetStatus);
         endpoints.MapPost("params", SetParameters);
         endpoints.MapPost("clear", ClearText);
+        endpoints.MapPost("tx/send", SendTx);
+        endpoints.MapPost("tx/abort", AbortTx);
+    }
+
+    private IResult SendTx(TxSendDto body)
+    {
+        if (_tx is null)
+            return Results.Problem("TX unavailable — needs ControlRadio capability + a host playback sink", statusCode: 409);
+        if (string.IsNullOrWhiteSpace(body.Text))
+            return Results.BadRequest(new { error = "text required" });
+        if (!_tx.Send(body.Text!, _markHz, _shiftHz, _baud, _reverse, _usos))
+            return Results.Conflict(new { error = "already sending" });
+        _ctx?.Logger.LogInformation("RTTY TX start: {Len} chars (mark={Mark} shift={Shift} baud={Baud} rev={Rev})",
+            body.Text!.Length, _markHz, _shiftHz, _baud, _reverse);
+        return Results.Ok(new { sending = true });
+    }
+
+    private IResult AbortTx()
+    {
+        _tx?.Abort();
+        return Results.Ok(new { aborted = true });
     }
 
     private IResult GetStatus()
@@ -103,6 +145,9 @@ public sealed class RttyPlugin : IZeusPlugin, IRxAudioTapPlugin, IBackendPlugin
             MarkHigh = d?.MarkHigh ?? true,
             CharCount = d?.CharCount ?? 0,
             Text = text,
+            TxCapable = _tx is not null,
+            TxSending = _tx?.IsSending ?? false,
+            TxCurrent = _tx?.Current ?? "",
         });
     }
 
@@ -146,6 +191,11 @@ public sealed class RttyPlugin : IZeusPlugin, IRxAudioTapPlugin, IBackendPlugin
 
     // ------------------------------------------------------------------ DTOs
 
+    public sealed record TxSendDto
+    {
+        [JsonPropertyName("text")] public string? Text { get; init; }
+    }
+
     public sealed record ParamsDto
     {
         [JsonPropertyName("markHz")]  public double? MarkHz { get; init; }
@@ -168,5 +218,8 @@ public sealed class RttyPlugin : IZeusPlugin, IRxAudioTapPlugin, IBackendPlugin
         [JsonPropertyName("markHigh")]   public bool MarkHigh { get; init; }
         [JsonPropertyName("charCount")]  public long CharCount { get; init; }
         [JsonPropertyName("text")]       public string Text { get; init; } = "";
+        [JsonPropertyName("txCapable")]  public bool TxCapable { get; init; }
+        [JsonPropertyName("txSending")]  public bool TxSending { get; init; }
+        [JsonPropertyName("txCurrent")]  public string TxCurrent { get; init; } = "";
     }
 }
