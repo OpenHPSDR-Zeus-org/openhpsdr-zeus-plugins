@@ -57,32 +57,54 @@ public sealed class Player : IDisposable
         IDisposable? monitor = onAir ? null : _sink.BeginLocalMonitor();
         try
         {
-            double blockMs = 1000.0 * BlockSamples / rate;
-            int pos = 0;
-            long startTick = Environment.TickCount64;
-            int blocks = 0;
-
-            while (_playing && pos < samples.Length)
-            {
-                if (onAir && !_sink.IsMoxOn) break; // operator unkeyed
-                int n = Math.Min(BlockSamples, samples.Length - pos);
-                var span = samples.AsSpan(pos, n);
-
-                if (onAir) _sink.PlayOnAir(span, rate);
-                else _sink.PlayLocal(span, rate);
-                pos += n;
-                blocks++;
-
-                long target = startTick + (long)(blocks * blockMs);
-                long wait = target - Environment.TickCount64;
-                if (wait > 0) Thread.Sleep((int)wait);
-            }
+            if (onAir) PumpOnAir(samples, rate);
+            else PumpLocal(samples, rate);
         }
         finally
         {
             monitor?.Dispose();
             _playing = false;
             _currentFile = null;
+        }
+    }
+
+    // Local monitor: no wall-clock pacing. We push blocks as fast as the host's
+    // monitor ring accepts them; when it's full PlayLocal returns false and we
+    // wait briefly, so the host's RX tick clock (the consumer) paces playback.
+    // One clock drives both sides → no drift, no periodic drops, no clicks.
+    private void PumpLocal(float[] samples, int rate)
+    {
+        int pos = 0;
+        while (_playing && pos < samples.Length)
+        {
+            int n = Math.Min(BlockSamples, samples.Length - pos);
+            if (_sink.PlayLocal(samples.AsSpan(pos, n), rate)) pos += n;
+            else Thread.Sleep(2); // ring full — let the consumer drain (backpressure)
+        }
+        // Wait out the buffered tail so we don't report 'finished' (and clear
+        // the panel) while the last ~few hundred ms are still being heard.
+        int guard = 0;
+        while (_playing && _sink.LocalMonitorBacklog > 0 && guard++ < 500)
+            Thread.Sleep(10);
+    }
+
+    // On-air: paced to real time so the TX mic accumulator isn't overrun, and
+    // stops if the operator unkeys mid-clip. Mirrors the built-in recorder.
+    private void PumpOnAir(float[] samples, int rate)
+    {
+        double blockMs = 1000.0 * BlockSamples / rate;
+        int pos = 0;
+        long startTick = Environment.TickCount64;
+        int blocks = 0;
+        while (_playing && pos < samples.Length)
+        {
+            if (!_sink.IsMoxOn) break; // operator unkeyed
+            int n = Math.Min(BlockSamples, samples.Length - pos);
+            _sink.PlayOnAir(samples.AsSpan(pos, n), rate);
+            pos += n;
+            blocks++;
+            long wait = startTick + (long)(blocks * blockMs) - Environment.TickCount64;
+            if (wait > 0) Thread.Sleep((int)wait);
         }
     }
 
