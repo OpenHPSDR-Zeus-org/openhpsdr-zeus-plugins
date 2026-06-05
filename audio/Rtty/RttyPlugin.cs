@@ -35,6 +35,11 @@ public sealed class RttyPlugin : IZeusPlugin, IRxAudioTapPlugin, IBackendPlugin
     private double _markHz = 2125, _shiftHz = 170, _baud = 45.45;
     private bool _reverse, _usos = true;
 
+    // Decoder enable. When false, OnRxAudio returns without running the
+    // per-sample DSP — no CPU spent while the decoder isn't in use. Volatile:
+    // control thread writes, audio thread reads.
+    private volatile bool _enabled = true;
+
     // ------------------------------------------------------------------ IZeusPlugin
 
     public async Task InitializeAsync(IPluginContext context, CancellationToken ct)
@@ -45,6 +50,7 @@ public sealed class RttyPlugin : IZeusPlugin, IRxAudioTapPlugin, IBackendPlugin
         _baud = await context.Settings.GetAsync<double?>("baud", ct) ?? 45.45;
         _reverse = await context.Settings.GetAsync<bool?>("reverse", ct) ?? false;
         _usos = await context.Settings.GetAsync<bool?>("usos", ct) ?? true;
+        _enabled = await context.Settings.GetAsync<bool?>("enabled", ct) ?? true;
         context.Logger.LogInformation(
             "RTTY initialising; mark={Mark}Hz shift={Shift}Hz baud={Baud} reverse={Rev} usos={Usos}",
             _markHz, _shiftHz, _baud, _reverse, _usos);
@@ -86,7 +92,10 @@ public sealed class RttyPlugin : IZeusPlugin, IRxAudioTapPlugin, IBackendPlugin
     }
 
     public void OnRxAudio(ReadOnlySpan<float> samples, AudioBlockContext ctx)
-        => _demod?.Process(samples);
+    {
+        if (!_enabled) return; // decoder off — spend no CPU
+        _demod?.Process(samples);
+    }
 
     public Task ShutdownTapAsync(CancellationToken ct)
     {
@@ -135,6 +144,7 @@ public sealed class RttyPlugin : IZeusPlugin, IRxAudioTapPlugin, IBackendPlugin
         return Results.Ok(new StatusDto
         {
             TapReady = d is not null,
+            Enabled = _enabled,
             MarkHz = _markHz,
             ShiftHz = _shiftHz,
             Baud = _baud,
@@ -168,6 +178,11 @@ public sealed class RttyPlugin : IZeusPlugin, IRxAudioTapPlugin, IBackendPlugin
         if (body.Baud is { } b && b is > 10 and < 600) _baud = b;
         if (body.Reverse is { } r) _reverse = r;
         if (body.Usos is { } u) _usos = u;
+        if (body.Enabled is { } en)
+        {
+            _enabled = en;
+            if (!en) _demod?.Reset(); // clear decoder state so it doesn't resume stale
+        }
 
         _demod?.SetParams(_markHz, _shiftHz, _baud, _reverse, _usos);
 
@@ -178,8 +193,9 @@ public sealed class RttyPlugin : IZeusPlugin, IRxAudioTapPlugin, IBackendPlugin
             await ctx.Settings.SetAsync("baud", _baud, ct);
             await ctx.Settings.SetAsync("reverse", _reverse, ct);
             await ctx.Settings.SetAsync("usos", _usos, ct);
+            await ctx.Settings.SetAsync("enabled", _enabled, ct);
         }
-        return Results.Ok(new { markHz = _markHz, shiftHz = _shiftHz, baud = _baud, reverse = _reverse, usos = _usos });
+        return Results.Ok(new { enabled = _enabled, markHz = _markHz, shiftHz = _shiftHz, baud = _baud, reverse = _reverse, usos = _usos });
     }
 
     private IResult ClearText()
@@ -203,11 +219,13 @@ public sealed class RttyPlugin : IZeusPlugin, IRxAudioTapPlugin, IBackendPlugin
         [JsonPropertyName("baud")]    public double? Baud { get; init; }
         [JsonPropertyName("reverse")] public bool? Reverse { get; init; }
         [JsonPropertyName("usos")]    public bool? Usos { get; init; }
+        [JsonPropertyName("enabled")] public bool? Enabled { get; init; }
     }
 
     public sealed record StatusDto
     {
         [JsonPropertyName("tapReady")]   public bool TapReady { get; init; }
+        [JsonPropertyName("enabled")]    public bool Enabled { get; init; }
         [JsonPropertyName("markHz")]     public double MarkHz { get; init; }
         [JsonPropertyName("shiftHz")]    public double ShiftHz { get; init; }
         [JsonPropertyName("baud")]       public double Baud { get; init; }

@@ -14,6 +14,7 @@ interface ZeusPluginApi {
 
 interface RttyStatus {
     tapReady: boolean;
+    enabled: boolean;
     markHz: number;
     shiftHz: number;
     baud: number;
@@ -30,7 +31,7 @@ interface RttyStatus {
 }
 
 const DEFAULT_STATUS: RttyStatus = {
-    tapReady: false, markHz: 2125, shiftHz: 170, baud: 45.45, reverse: false, usos: true,
+    tapReady: false, enabled: true, markHz: 2125, shiftHz: 170, baud: 45.45, reverse: false, usos: true,
     markLevel: 0, spaceLevel: 0, markHigh: true, charCount: 0, text: '',
     txCapable: false, txSending: false, txCurrent: '',
 };
@@ -128,22 +129,31 @@ function RttyPanel({ api }: { api: ZeusPluginApi }) {
         <section style={panel}>
             <header style={header}>
                 <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, letterSpacing: 2, textTransform: 'uppercase' }}>RTTY</h3>
-                {status.txSending
-                    ? <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, color: '#fff', background: 'var(--tx, #e63a2b)', padding: '2px 8px', borderRadius: 3, letterSpacing: 1, boxShadow: '0 0 8px rgba(230,58,43,0.5)' }}>● ON AIR</span>
-                    : <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, color: status.tapReady ? 'var(--accent, #4a9eff)' : 'var(--fg-3, #5a5e66)', letterSpacing: 1 }}>
-                        {status.tapReady ? `${status.charCount} chr` : 'waiting for audio…'}
-                      </span>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {status.txSending
+                        ? <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, color: '#fff', background: 'var(--tx, #e63a2b)', padding: '2px 8px', borderRadius: 3, letterSpacing: 1, boxShadow: '0 0 8px rgba(230,58,43,0.5)' }}>● ON AIR</span>
+                        : <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, color: !status.enabled ? 'var(--fg-3, #5a5e66)' : status.tapReady ? 'var(--accent, #4a9eff)' : 'var(--fg-3, #5a5e66)', letterSpacing: 1 }}>
+                            {!status.enabled ? 'decoder off' : status.tapReady ? `${status.charCount} chr` : 'waiting for audio…'}
+                          </span>}
+                    <button type="button" onClick={() => setField({ enabled: !status.enabled })} aria-pressed={status.enabled}
+                        title={status.enabled ? 'Decoder running — click to stop (frees CPU)' : 'Decoder stopped — click to start'}
+                        style={{ padding: '3px 10px', fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, fontWeight: 700, letterSpacing: 1, color: status.enabled ? '#fff' : 'var(--fg-2, #b8bcc3)', background: status.enabled ? 'var(--accent, #4a9eff)' : 'var(--bg-2, #1f2226)', border: '1px solid ' + (status.enabled ? 'var(--accent, #4a9eff)' : 'var(--line-2, #3a3d42)'), borderRadius: 3, cursor: 'pointer', boxShadow: status.enabled ? '0 0 8px rgba(74,158,255,0.4)' : 'none' }}>
+                        {status.enabled ? 'ON' : 'OFF'}
+                    </button>
+                </div>
             </header>
 
             {/* Tuning indicator */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <ToneBar label="MARK" value={norm(status.markLevel)} high={status.markHigh} color="var(--accent, #4a9eff)" />
-                <ToneBar label="SPACE" value={norm(status.spaceLevel)} high={!status.markHigh} color="var(--power, #ffc93a)" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5, opacity: status.enabled ? 1 : 0.4 }}>
+                <ToneBar label="MARK" value={status.enabled ? norm(status.markLevel) : 0} high={status.enabled && status.markHigh} color="var(--accent, #4a9eff)" />
+                <ToneBar label="SPACE" value={status.enabled ? norm(status.spaceLevel) : 0} high={status.enabled && !status.markHigh} color="var(--power, #ffc93a)" />
             </div>
 
             {/* Decoded text */}
             <div ref={textRef} onScroll={onScroll} style={textView}>
-                {status.text || <span style={{ color: 'var(--fg-3, #5a5e66)' }}>Tune a RTTY signal so the mark/space bars peak…</span>}
+                {!status.enabled
+                    ? <span style={{ color: 'var(--fg-3, #5a5e66)' }}>Decoder off — press ON to start (and free CPU when idle).</span>
+                    : (status.text || <span style={{ color: 'var(--fg-3, #5a5e66)' }}>Tune a RTTY signal so the mark/space bars peak…</span>)}
             </div>
 
             {/* Presets */}
