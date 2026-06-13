@@ -250,7 +250,7 @@
       "license": "GPL-2.0-or-later",
       "homepage": "https://github.com/Kb2uka/openhpsdr-zeus",
       "categories": ["monitors"],
-      "verified": false,
+      "verified": true,
       "versions": [
         {
           "version": "1.0.0",
