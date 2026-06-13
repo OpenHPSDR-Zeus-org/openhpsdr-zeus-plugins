@@ -241,6 +241,26 @@
           "sha256": "c4f71aa3fa8851f3707444565332c24f334e821407df86d2d8d19021533f633d"
         }
       ]
+    },
+    {
+      "id": "com.kb2uka.voyeur",
+      "name": "Voyeur Mode · Net Monitor",
+      "description": "Unattended net monitor (zeus-la5). Parks on a frequency and logs each over: captures the audio, transcribes speech to text on-device (whisper.cpp), extracts callsigns and enriches them via QRZ, builds a roster of who checked in, and writes a local-LLM 'what was discussed' digest. Searchable archive with per-over replay. Speech + AI engines download on first enable (offline thereafter). Extracted from Zeus core.",
+      "author": "Douglas J. Cerrato (KB2UKA)",
+      "license": "GPL-2.0-or-later",
+      "homepage": "https://github.com/Kb2uka/openhpsdr-zeus",
+      "categories": ["monitors"],
+      "verified": true,
+      "versions": [
+        {
+          "version": "1.0.0",
+          "sdkAbi": 1,
+          "sdkMinVersion": "1.2.0",
+          "platforms": ["any"],
+          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/voyeur-v1.0.0/com.kb2uka.voyeur-1.0.0.zip",
+          "sha256": "27494f2ca4e258b2e2169365cb1b64ae1cf7c0a86efc0ef10ae139a295f0f429"
+        }
+      ]
     }
   ]
 }
