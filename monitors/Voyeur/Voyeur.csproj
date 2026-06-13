@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Zeus.Voyeur.Plugin</AssemblyName>
+    <RootNamespace>Openhpsdr.Zeus.Plugins.Voyeur</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- true so LiteDB.dll (the only PackageReference; no transitive deps) is
+         emitted to the output and shipped in the plugin zip — the plugin's load
+         context resolves it locally rather than depending on the host happening
+         to share its LiteDB. Contracts (ProjectReference, Private=false) and the
+         AspNetCore FrameworkReference are still NOT copied. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- LiteDB ships INSIDE the plugin zip (VoyeurStore's session/segment DB).
+       Matches the version the core used (5.0.21) so the on-disk voyeur.db that
+       existing in-core Voyeur users already have opens unchanged. -->
+  <ItemGroup>
+    <PackageReference Include="LiteDB" Version="5.0.21" />
+  </ItemGroup>
+
+  <!-- Assumes OPENHPSDR-Zeus is cloned as a sibling of openhpsdr-zeus-plugins
+       (symlink). Contracts are host-provided, so Private=false. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\OPENHPSDR-Zeus\Zeus.Plugins.Contracts\Zeus.Plugins.Contracts.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="plugin.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="ui\**\*.js" CopyToOutputDirectory="PreserveNewest" Condition="Exists('ui')" />
+  </ItemGroup>
+
+</Project>
