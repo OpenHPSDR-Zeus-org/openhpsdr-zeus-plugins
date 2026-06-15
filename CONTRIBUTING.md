@@ -36,7 +36,11 @@ Quick version:
    }
    ```
 
-4. Open a pull request. The validation workflow runs:
+4. Branch off `develop` (this repo's default branch) and name your branch
+   `feat/<your-plugin>` (or `fix/<thing>` for a correction) — matching the
+   existing convention. Push it and **open a pull request targeting
+   `develop`**. Do NOT push directly to `develop` or `main`; both are
+   protected. The validation workflow runs:
    - JSON-Schema check of `registry.json` (must validate against
      `schema/registry.schema.json`).
    - SHA-256 verification: the workflow downloads each `downloadUrl`
@@ -45,9 +49,12 @@ Quick version:
      the downloaded zip and validates it against
      `schema/manifest.schema.json`.
 
-5. Once CI is green, the curator (Brian, EI6LF) merges the PR. Zeus
-   clients see the new entry within minutes of merge (raw.githubusercontent.com
-   propagates quickly).
+5. Once CI is green, the maintainer (Doug, KB2UKA) reviews and merges the PR
+   into `develop` — every PR requires maintainer (code-owner) approval, see
+   `.github/CODEOWNERS`. The entry goes live to Zeus clients when `develop`
+   is promoted to `main`: clients fetch `registry.json` from the **`main`**
+   branch via raw.githubusercontent.com, which propagates within minutes of
+   the promotion.
 
 ## What we accept
 
@@ -77,15 +84,15 @@ checks on every version listed.
 ## Marking a plugin "verified"
 
 Authors cannot self-verify. The `verified: true` flag is set by the
-curator after review of the plugin's source and a sanity run against
+maintainer after review of the plugin's source and a sanity run against
 a Zeus instance. Self-verification PRs are rejected.
 
 ## Removing a plugin
 
 If you need to take a plugin down (security incident, end-of-life):
 
-1. Open a PR removing the entry, with a brief reason.
-2. The curator reviews + merges.
+1. Open a PR (targeting `develop`) removing the entry, with a brief reason.
+2. The maintainer reviews + merges.
 3. Operators who have it installed are unaffected (it stays on their
    disk), but the entry is no longer listed in **Settings → Plugins →
    Browse**.
