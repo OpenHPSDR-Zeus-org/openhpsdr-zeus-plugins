@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "com.openhpsdr.zeus.samples.recorder",
+  "name": "Recorder",
+  "version": "0.1.0",
+  "author": "contributors",
+  "description": "Records and plays back radio audio. Three capture sources, operator-selectable: RX (the demodulated band audio you hear), TX MIC (your raw microphone, pre-processing), and TX AIR (the processed transmit audio — what actually goes on the air). Playback monitors locally, or transmits the clip on the air while you hold MOX. Uses the host's read-only audio taps + playback sink; never alters live audio and occupies no insert-chain slot. Realtime-safe — the audio thread writes a lock-free ring and a background thread flushes to disk. WAV float32/48 kHz mono; recordings live under the plugin folder and are downloadable from the panel.",
+  "homepage": "https://github.com/Kb2uka/openhpsdr-zeus-plugins",
+  "license": "GPL-2.0-or-later",
+  "sdk": {
+    "abi": 1,
+    "minVersion": "1.0.0"
+  },
+  "entrypoint": {
+    "assembly": "Recorder.dll",
+    "type": "Openhpsdr.Zeus.Samples.Recorder.RecorderPlugin"
+  },
+  "capabilities": [
+    "PersistSettings"
+  ],
+  "ui": {
+    "modules": [
+      "ui/recorder.es.js"
+    ],
+    "panels": [
+      {
+        "id": "recorder.main",
+        "title": "Recorder",
+        "icon": "Disc",
+        "slot": "rx-audio-tools.chain"
+      }
+    ]
+  }
+}

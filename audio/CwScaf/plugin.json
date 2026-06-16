@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "com.openhpsdr.zeus.samples.cwscaf",
+  "name": "CW SCAF (RX audio filter)",
+  "version": "0.1.0",
+  "author": "contributors",
+  "description": "Switched-capacitor-style variable-bandwidth CW audio filter on the RX (post-demod) path. Cascade of RBJ constant-0 dB-peak bandpass biquads centred on the operator's CW pitch, with adjustable bandwidth and section count to sharpen the skirts. Realtime managed C#, no native dependency. Prototype: parameters via REST (/api/plugins/{id}/params); React panel ships in a follow-up.",
+  "homepage": "https://github.com/Kb2uka/openhpsdr-zeus-plugins",
+  "license": "GPL-2.0-or-later",
+  "sdk": {
+    "abi": 1,
+    "minVersion": "1.0.0"
+  },
+  "entrypoint": {
+    "assembly": "CwScaf.dll",
+    "type": "Openhpsdr.Zeus.Samples.CwScaf.CwScafPlugin"
+  },
+  "capabilities": [
+    "PersistSettings"
+  ],
+  "audio": {
+    "slot": "rx.post-demod",
+    "channels": 1,
+    "sampleRate": 48000
+  },
+  "ui": {
+    "modules": [
+      "ui/scaf.es.js"
+    ],
+    "panels": [
+      {
+        "id": "cwscaf.main",
+        "title": "CW SCAF",
+        "icon": "Filter",
+        "slot": "rx-audio-tools.chain"
+      }
+    ]
+  }
+}
