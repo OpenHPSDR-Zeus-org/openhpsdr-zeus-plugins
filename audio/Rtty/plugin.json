@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "com.openhpsdr.zeus.samples.rtty",
+  "name": "RTTY",
+  "version": "0.1.0",
+  "author": "contributors",
+  "description": "Receive-only Baudot/ITA2 RTTY decoder. Reads the demodulated RX band audio through the host's read-only audio tap (never alters live audio, occupies no insert slot) and deframes AFSK FSK into text. Two quadrature tone detectors (mark/space) feed a software UART; ITA2 LETTERS/FIGURES with unshift-on-space. Tunable mark tone, shift and baud — amateur defaults are 2125 Hz mark, 170 Hz shift, 45.45 baud. The panel shows decoded text plus a mark/space tuning indicator. Transmit support follows once the host exposes plugin TX keying.",
+  "homepage": "https://github.com/Kb2uka/openhpsdr-zeus-plugins",
+  "license": "GPL-2.0-or-later",
+  "sdk": {
+    "abi": 1,
+    "minVersion": "1.0.0"
+  },
+  "entrypoint": {
+    "assembly": "Rtty.dll",
+    "type": "Openhpsdr.Zeus.Samples.Rtty.RttyPlugin"
+  },
+  "capabilities": [
+    "PersistSettings",
+    "ControlRadio"
+  ],
+  "ui": {
+    "modules": [
+      "ui/rtty.es.js"
+    ],
+    "panels": [
+      {
+        "id": "rtty.main",
+        "title": "RTTY",
+        "icon": "Radio",
+        "slot": "rx-audio-tools.chain"
+      }
+    ]
+  }
+}
