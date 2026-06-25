@@ -17,7 +17,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/antennagenius-v0.1.0/antennagenius-0.1.0.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/antennagenius-v0.1.0/antennagenius-0.1.0.zip",
           "sha256": "3fdf057656320b476b338ee8f4f8f1aeffa8d84a6d34d1f8df08c28aafdbd6c2"
         }
       ]
@@ -37,7 +37,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/pgxl-v1.0.0/pgxl-1.0.0.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/pgxl-v1.0.0/pgxl-1.0.0.zip",
           "sha256": "6a3189feefe2c4ed2265cebd7520b731c161ca9d1f15d8dbd33230384f384ec1"
         }
       ]
@@ -57,7 +57,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/tgxl-v1.0.0/tgxl-1.0.0.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/tgxl-v1.0.0/tgxl-1.0.0.zip",
           "sha256": "a4d9e798c34e999f117716ca6f332963a983cc7ba7953749fc6c5181856ef09d"
         }
       ]
@@ -77,7 +77,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/rf2k-v1.0.1/rf2k-1.0.1.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/rf2k-v1.0.1/rf2k-1.0.1.zip",
           "sha256": "7b4998ae4510b6869851ff85dc357fbc64c6bb4a22ccaa72a27dfe8820f467b1"
         },
         {
@@ -85,7 +85,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/rf2k-v1.0.0/rf2k-1.0.0.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/rf2k-v1.0.0/rf2k-1.0.0.zip",
           "sha256": "9d6f08c800806bbf1b3b3dfae8007d463326193b02696c62144cbf98313fe72f"
         }
       ]
@@ -105,7 +105,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/eq-v0.2.0/eq-0.2.0.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/eq-v0.2.0/eq-0.2.0.zip",
           "sha256": "2e7af4a81bc33e39bfadb9768c4805455ecc24a19cab22e02ce4347df39ebf9c"
         },
         {
@@ -113,7 +113,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/eq-v0.1.0/eq-0.1.0.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/eq-v0.1.0/eq-0.1.0.zip",
           "sha256": "55461000343eaa283b963e81cf272f28345eca69766d9f1b90035f90346253fb"
         }
       ]
@@ -133,7 +133,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/compressor-v0.1.2/compressor-0.1.2.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/compressor-v0.1.2/compressor-0.1.2.zip",
           "sha256": "7c781605e68c0ca07b2b6b7904ae0058562fb8d55bec6b5097eb32f5aae32118"
         }
       ]
@@ -153,7 +153,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/exciter-v0.2.0/exciter-0.2.0.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/exciter-v0.2.0/exciter-0.2.0.zip",
           "sha256": "ea4ebd897eecb08d814a1c89b2a62ae394b755d7e566495a79c5509f27997a1e"
         },
         {
@@ -161,7 +161,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/exciter-v0.1.0/exciter-0.1.0.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/exciter-v0.1.0/exciter-0.1.0.zip",
           "sha256": "75fece3991c6a89d761d69c7a4913f0ff998fab27dd899111686a0aae5c97f42"
         }
       ]
@@ -181,7 +181,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/bass-v0.2.0/bass-0.2.0.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/bass-v0.2.0/bass-0.2.0.zip",
           "sha256": "3a4f584fc33aab3f2d61698f1a2239c589883c7c3158765eb272a96395d49ff3"
         },
         {
@@ -189,7 +189,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/bass-v0.1.0/bass-0.1.0.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/bass-v0.1.0/bass-0.1.0.zip",
           "sha256": "37620e71e08ce5a67a3163aebe3640431084443e0e2dcdbc8fa84b23857e38a7"
         }
       ]
@@ -209,7 +209,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/reverb-v0.2.0/reverb-0.2.0.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/reverb-v0.2.0/reverb-0.2.0.zip",
           "sha256": "bc9d643c60968238a1bfb031e2d1b02d9a8c29b278aba18488d6afb4ed07de64"
         },
         {
@@ -217,7 +217,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/reverb-v0.1.0/reverb-0.1.0.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/reverb-v0.1.0/reverb-0.1.0.zip",
           "sha256": "0c998ec3611de412dccc5c3bc12869faec9ea65516d42a0d8bc7eeff3ad393ce"
         }
       ]
@@ -237,7 +237,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.0.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/noisegate-v0.1.0/noisegate-0.1.0.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/noisegate-v0.1.0/noisegate-0.1.0.zip",
           "sha256": "c4f71aa3fa8851f3707444565332c24f334e821407df86d2d8d19021533f633d"
         }
       ]
@@ -257,7 +257,7 @@
           "sdkAbi": 1,
           "sdkMinVersion": "1.2.0",
           "platforms": ["any"],
-          "downloadUrl": "https://github.com/Kb2uka/openhpsdr-zeus-plugins/releases/download/voyeur-v1.0.0/com.kb2uka.voyeur-1.0.0.zip",
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/voyeur-v1.0.0/com.kb2uka.voyeur-1.0.0.zip",
           "sha256": "27494f2ca4e258b2e2169365cb1b64ae1cf7c0a86efc0ef10ae139a295f0f429"
         }
       ]
