@@ -1,11 +1,12 @@
 # OpenHPSDR Zeus Plugins Registry — Code Owners
 #
-# Every path in this repo is owned by @Kb2uka. Combined with branch
-# protection on `main` (require approving review from a code owner),
-# this enforces the maintainer's "I have to merge" rule — any PR
-# opened by another collaborator (e.g. @brianbruff, @rampa069)
-# requires @Kb2uka's review approval before it can be merged.
+# Every path in this repo is owned by @Kb2uka and @iamexemplar (Christian
+# Suarez, N9WAR — org co-owner). Combined with branch protection on `main`
+# and `develop` (require an approving review from a code owner), this
+# enforces the "a maintainer has to approve" rule — any PR opened by another
+# collaborator (e.g. @brianbruff, @rampa069) requires a code owner's review
+# approval before it can be merged.
 #
 # Format: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-security/customizing-your-repository/about-code-owners
 
-*       @Kb2uka
+*       @Kb2uka @iamexemplar
