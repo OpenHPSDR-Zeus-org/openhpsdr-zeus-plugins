@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Zeus.Recorder.Plugin</AssemblyName>
+    <RootNamespace>Openhpsdr.Zeus.Plugins.Recorder</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- Pure-managed plugin: no PackageReference, no native deps. The settings
+         root persists via IPluginContext.Settings (no LiteDB), so nothing needs
+         to be copied to the output beyond the assembly itself. -->
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- The test project lives in a subfolder; keep its sources out of the
+       plugin assembly (the default SDK glob would otherwise compile them in). -->
+  <ItemGroup>
+    <Compile Remove="Recorder.Tests/**/*.cs" />
+  </ItemGroup>
+
+  <!-- Assumes OPENHPSDR-Zeus is cloned (or symlinked) as a sibling of
+       openhpsdr-zeus-plugins. Contracts are host-provided, so Private=false. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\OPENHPSDR-Zeus\Zeus.Plugins.Contracts\Zeus.Plugins.Contracts.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="plugin.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="ui\**\*.js" CopyToOutputDirectory="PreserveNewest" Condition="Exists('ui')" />
+  </ItemGroup>
+
+</Project>

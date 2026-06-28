@@ -1,0 +1,23 @@
+{
+  "name": "wav-recorder-ui",
+  "version": "1.0.0",
+  "description": "Openhpsdr-Zeus WAV Recorder · Tape Deck plugin UI module build harness",
+  "private": true,
+  "license": "GPL-2.0-or-later",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc -b",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.0",
+    "vitest": "^2.1.0"
+  }
+}
