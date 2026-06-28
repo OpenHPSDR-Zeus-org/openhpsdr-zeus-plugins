@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "com.kb2uka.recorder",
+  "name": "WAV Recorder · Tape Deck",
+  "version": "1.0.0",
+  "author": "Douglas J. Cerrato (KB2UKA)",
+  "description": "RX/TX tape deck extracted from Zeus core. Records float32 WAVs to <Downloads>/Zeus Recordings, browses/renames/moves/deletes them in folders, and plays a recording back locally (monitor) or over the air. Over-air playback keys MOX safely: it rides an operator-held key, only drops what it raised, never arms PureSignal, and never auto-keys.",
+  "homepage": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus",
+  "license": "GPL-2.0-or-later",
+  "sdk": { "abi": 1, "minVersion": "1.2.0" },
+  "entrypoint": {
+    "assembly": "Zeus.Recorder.Plugin.dll",
+    "type": "Openhpsdr.Zeus.Plugins.Recorder.RecorderPlugin"
+  },
+  "capabilities": ["ReadRadioState", "ControlRadio", "AudioStream", "PersistSettings", "FileSystemWrite"],
+  "ui": {
+    "modules": ["ui/wav-recorder-panel.es.js"],
+    "panels": [
+      {
+        "id": "wavrecorder",
+        "title": "Wav Recorder",
+        "icon": "Disc",
+        "slot": "workspace.tools",
+        "category": "tools"
+      }
+    ]
+  }
+}

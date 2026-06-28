@@ -7,6 +7,9 @@ bin/
 obj/
 publish/
 
+# TypeScript incremental build info
+*.tsbuildinfo
+
 # Built UI bundles (source .tsx is committed, ESM build output is a release artifact)
 **/ui/*.es.js
 **/ui/*.es.js.map
