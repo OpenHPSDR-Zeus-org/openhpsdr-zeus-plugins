@@ -268,7 +268,7 @@
       "description": "RX/TX tape deck extracted from Zeus core — records float32 WAVs to <Downloads>/Zeus Recordings, browses/renames/moves/deletes them in folders, and plays a recording back locally or over the air. Over-air playback keys MOX safely (rides an operator key, only drops what it raised, never arms PureSignal, never auto-keys).",
       "author": "Douglas J. Cerrato (KB2UKA)",
       "license": "GPL-2.0-or-later",
-      "homepage": "https://github.com/Kb2uka/openhpsdr-zeus",
+      "homepage": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus",
       "categories": ["monitors"],
       "verified": true,
       "versions": [
@@ -278,7 +278,7 @@
           "sdkMinVersion": "1.2.0",
           "platforms": ["any"],
           "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/recorder-v1.0.0/com.kb2uka.recorder-1.0.0.zip",
-          "sha256": "bd13ccbc17d3ae67c1ecca8f76d6e8a51307f6df1cab23b81920b18705964f68"
+          "sha256": "95b88205d06bbea7ae2dcbccabf7ced4b94821a35ee00cededc5b8102ebfbb70"
         }
       ]
     }
