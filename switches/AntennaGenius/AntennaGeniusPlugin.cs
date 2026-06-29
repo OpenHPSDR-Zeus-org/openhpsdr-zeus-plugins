@@ -28,6 +28,7 @@ public sealed class AntennaGeniusPlugin : IZeusPlugin, IBackendPlugin
     private const int DiscoveryPort = 9007;
     private const int KeepAliveIntervalMs = 30000;
     private const int ReconnectDelayMs = 5000;
+    private const string SettingsKey = "settings";
 
     private readonly ConcurrentDictionary<string, AntennaGeniusConnection> _connections = new();
     private IPluginContext? _ctx;
@@ -35,18 +36,37 @@ public sealed class AntennaGeniusPlugin : IZeusPlugin, IBackendPlugin
     private Task? _discoveryTask;
     private Task? _keepAliveTask;
 
-    public Task InitializeAsync(IPluginContext context, CancellationToken ct)
+    // Manual-override connection state. Guarded by _manualLock because the
+    // settings endpoint and the discovery path can both mutate it.
+    private readonly object _manualLock = new();
+    private CancellationTokenSource? _manualCts;
+    private string? _manualKey;
+    private CancellationToken _runToken;
+    private AntennaGeniusSettings _settings = new();
+
+    public async Task InitializeAsync(IPluginContext context, CancellationToken ct)
     {
         _ctx = context;
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
+        _runToken = token;
 
-        context.Logger.LogInformation("Antenna Genius plugin starting; UDP discovery on port {Port}", DiscoveryPort);
+        _settings = await SafeGetSettingsAsync(context, ct).ConfigureAwait(false) ?? new AntennaGeniusSettings();
+
+        context.Logger.LogInformation(
+            "Antenna Genius plugin starting; UDP discovery on port {Port}; manualIp={ManualIp} manualPort={ManualPort}",
+            DiscoveryPort,
+            string.IsNullOrWhiteSpace(_settings.ManualIpAddress) ? "(none)" : _settings.ManualIpAddress,
+            _settings.ManualPort);
 
         _discoveryTask = Task.Run(() => RunDiscoveryListenerAsync(token), token);
         _keepAliveTask = Task.Run(() => RunKeepAliveAsync(token), token);
 
-        return Task.CompletedTask;
+        // If a manual address is configured, dial it directly — this is the
+        // mDNS-fallback path for networks whose switch filters the discovery
+        // broadcast. Auto-discovery keeps running in parallel above for
+        // operators whose switch passes it.
+        ApplyManualConnection(_settings, token);
     }
 
     public async Task ShutdownAsync(CancellationToken ct)
@@ -56,6 +76,14 @@ public sealed class AntennaGeniusPlugin : IZeusPlugin, IBackendPlugin
         if (_cts is not null)
         {
             try { _cts.Cancel(); } catch { /* ignore */ }
+        }
+
+        lock (_manualLock)
+        {
+            try { _manualCts?.Cancel(); } catch { /* ignore */ }
+            _manualCts?.Dispose();
+            _manualCts = null;
+            _manualKey = null;
         }
 
         foreach (var conn in _connections.Values)
@@ -84,6 +112,9 @@ public sealed class AntennaGeniusPlugin : IZeusPlugin, IBackendPlugin
     {
         endpoints.MapGet("status", GetStatus);
         endpoints.MapPost("select-antenna", SelectAntenna);
+        endpoints.MapGet("settings", GetSettings);
+        endpoints.MapPost("settings", PutSettings);
+        endpoints.MapPost("test", TestConnection);
     }
 
     private IResult GetStatus()
@@ -111,6 +142,137 @@ public sealed class AntennaGeniusPlugin : IZeusPlugin, IBackendPlugin
 
         await conn.SelectAntennaAsync(req.PortId, req.AntennaId);
         return Results.Ok(conn.GetStatus());
+    }
+
+    // ----------------------------------------------------------------------
+    // Manual-connection settings (issue #818). On networks whose switch
+    // filters the UDP discovery broadcast (mDNS/Bonjour-style multicast),
+    // auto-discovery never sees the device. These endpoints let the operator
+    // pin a direct IP/port so the plugin dials the TCP command channel
+    // straight away, no broadcast required.
+    // ----------------------------------------------------------------------
+
+    private IResult GetSettings() => Results.Ok(_settings);
+
+    private async Task<IResult> PutSettings(AntennaGeniusSettings req)
+    {
+        if (req.ManualPort is < 1 or > 65535)
+            return Results.BadRequest(new { error = "manualPort must be between 1 and 65535" });
+
+        var next = new AntennaGeniusSettings(
+            ManualIpAddress: (req.ManualIpAddress ?? string.Empty).Trim(),
+            ManualPort: req.ManualPort);
+
+        _settings = next;
+
+        if (_ctx is not null)
+            await PersistSettingsAsync(_ctx, next).ConfigureAwait(false);
+
+        ApplyManualConnection(next, _runToken);
+        return Results.Ok(next);
+    }
+
+    private async Task<IResult> TestConnection(AntennaGeniusTestRequest req)
+    {
+        var ip = (req.IpAddress ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(ip))
+            return Results.BadRequest(new { error = "ipAddress is required" });
+        if (req.Port is < 1 or > 65535)
+            return Results.BadRequest(new { error = "port must be between 1 and 65535" });
+
+        var result = await AntennaGeniusConnection.TestAsync(ip, req.Port, _ctx?.Logger).ConfigureAwait(false);
+        return Results.Ok(result);
+    }
+
+    private static async Task<AntennaGeniusSettings?> SafeGetSettingsAsync(IPluginContext context, CancellationToken ct)
+    {
+        try
+        {
+            return await context.Settings.GetAsync<AntennaGeniusSettings>(SettingsKey, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(ex, "antennagenius.settings.get failed; using defaults");
+            return null;
+        }
+    }
+
+    private static async Task PersistSettingsAsync(IPluginContext context, AntennaGeniusSettings settings)
+    {
+        try
+        {
+            await context.Settings.SetAsync(SettingsKey, settings).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(ex, "antennagenius.settings.set failed; in-memory settings kept");
+        }
+    }
+
+    private static string ManualKey(string ip, int port) =>
+        string.Create(CultureInfo.InvariantCulture, $"manual:{ip}:{port}");
+
+    /// <summary>
+    /// Reconcile the manual connection to match <paramref name="settings"/>.
+    /// Idempotent: a no-op when already pointed at the same endpoint. Tears
+    /// down the previous manual connection (cancelling its reconnect loop) when
+    /// the address changes or is cleared, and refuses to open a second
+    /// connection to an IP that auto-discovery has already reached.
+    /// </summary>
+    private void ApplyManualConnection(AntennaGeniusSettings settings, CancellationToken ct)
+    {
+        lock (_manualLock)
+        {
+            var ip = (settings.ManualIpAddress ?? string.Empty).Trim();
+            var newKey = string.IsNullOrEmpty(ip) ? null : ManualKey(ip, settings.ManualPort);
+
+            if (newKey == _manualKey)
+                return; // already serving this endpoint
+
+            // Tear down any previous manual connection. Cancelling its own CTS
+            // stops the reconnect loop; Disconnect closes the live socket.
+            if (_manualCts is not null)
+            {
+                try { _manualCts.Cancel(); } catch { /* ignore */ }
+                _manualCts.Dispose();
+                _manualCts = null;
+            }
+            if (_manualKey is not null && _connections.TryRemove(_manualKey, out var old))
+                old.Disconnect();
+            _manualKey = null;
+
+            if (newKey is null)
+                return; // manual override cleared
+
+            // Don't double-connect if discovery already reached this IP.
+            if (_connections.Values.Any(c => string.Equals(c.IpAddress, ip, StringComparison.OrdinalIgnoreCase)))
+            {
+                _ctx?.Logger.LogInformation(
+                    "Manual Antenna Genius {Ip} already connected via discovery; not adding a second connection", ip);
+                return;
+            }
+
+            var device = new AntennaGeniusDiscoveredEvent(
+                IpAddress: ip,
+                Port: settings.ManualPort,
+                Version: "",
+                Serial: newKey,
+                Name: "Antenna Genius (manual)",
+                RadioPorts: 2,
+                AntennaPorts: 8,
+                Mode: "master",
+                Uptime: 0);
+
+            var connection = new AntennaGeniusConnection(device, _ctx!.Logger);
+            if (_connections.TryAdd(newKey, connection))
+            {
+                _manualKey = newKey;
+                _manualCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                _ctx?.Logger.LogInformation(
+                    "Connecting to manually-configured Antenna Genius at {Ip}:{Port}", ip, settings.ManualPort);
+                _ = connection.ConnectAsync(_manualCts.Token);
+            }
+        }
     }
 
     private async Task RunDiscoveryListenerAsync(CancellationToken ct)
@@ -196,6 +358,12 @@ public sealed class AntennaGeniusPlugin : IZeusPlugin, IBackendPlugin
 
         if (!_connections.TryGetValue(device.Serial, out var connection))
         {
+            // Dedup by IP: if we already have a connection to this address
+            // (e.g. a manual override pinned the same unit), don't open a
+            // second socket to the same device.
+            if (_connections.Values.Any(c => string.Equals(c.IpAddress, device.IpAddress, StringComparison.OrdinalIgnoreCase)))
+                return;
+
             _ctx?.Logger.LogInformation("Discovered Antenna Genius: {Name} ({Serial}) at {Ip}:{Port}",
                 device.Name, device.Serial, device.IpAddress, device.Port);
 
@@ -257,6 +425,59 @@ public sealed class AntennaGeniusPlugin : IZeusPlugin, IBackendPlugin
         private string _version = "";
 
         public bool IsConnected => _tcpClient?.Connected ?? false;
+
+        public string IpAddress => _device.IpAddress;
+
+        /// <summary>
+        /// Probe an Antenna Genius at <paramref name="ip"/>:<paramref name="port"/>
+        /// without joining the live connection pool. Opens a short-lived TCP
+        /// connection, reads the firmware prologue if the device offers one, and
+        /// disposes everything. Used by the <c>POST test</c> endpoint so the
+        /// operator can confirm a manual address before saving it.
+        /// </summary>
+        public static async Task<AntennaGeniusTestResult> TestAsync(string ip, int port, ILogger? logger, CancellationToken ct = default)
+        {
+            try
+            {
+                using var client = new TcpClient();
+                using (var dialCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                {
+                    dialCts.CancelAfter(TimeSpan.FromSeconds(3));
+                    await client.ConnectAsync(ip, port, dialCts.Token).ConfigureAwait(false);
+                }
+
+                using var stream = client.GetStream();
+                using var reader = new StreamReader(stream, Encoding.ASCII);
+
+                string? prologue = null;
+                try
+                {
+                    using var readCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    readCts.CancelAfter(TimeSpan.FromSeconds(2));
+                    prologue = await reader.ReadLineAsync(readCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    // Device connected but sent no prologue within the window —
+                    // still a successful reach.
+                }
+
+                var version = prologue is not null && prologue.StartsWith("V", StringComparison.Ordinal)
+                    ? prologue.Split(' ')[0].Substring(1)
+                    : string.Empty;
+
+                return new AntennaGeniusTestResult(true, version, null);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                return new AntennaGeniusTestResult(false, string.Empty, "Connection timed out");
+            }
+            catch (Exception ex)
+            {
+                logger?.LogDebug(ex, "Antenna Genius test connection to {Ip}:{Port} failed", ip, port);
+                return new AntennaGeniusTestResult(false, string.Empty, ex.Message);
+            }
+        }
 
         public AntennaGeniusConnection(AntennaGeniusDiscoveredEvent device, ILogger logger)
         {
@@ -717,4 +938,27 @@ public sealed record SelectAntennaRequest(
     [property: JsonPropertyName("serial")]    string Serial,
     [property: JsonPropertyName("portId")]    int PortId,
     [property: JsonPropertyName("antennaId")] int AntennaId
+);
+
+// ---------------------------------------------------------------------------
+// Manual-connection settings (issue #818). Persisted via IPluginContext.Settings
+// (LiteDB-backed, isolated per plugin). An empty ManualIpAddress means "use
+// auto-discovery only" — the default. Port defaults to 9007, the Antenna Genius
+// firmware v4.0+ command/discovery port.
+// ---------------------------------------------------------------------------
+
+public sealed record AntennaGeniusSettings(
+    [property: JsonPropertyName("manualIpAddress")] string ManualIpAddress = "",
+    [property: JsonPropertyName("manualPort")]      int ManualPort = 9007
+);
+
+public sealed record AntennaGeniusTestRequest(
+    [property: JsonPropertyName("ipAddress")] string IpAddress,
+    [property: JsonPropertyName("port")]      int Port
+);
+
+public sealed record AntennaGeniusTestResult(
+    [property: JsonPropertyName("ok")]      bool Ok,
+    [property: JsonPropertyName("version")] string Version,
+    [property: JsonPropertyName("error")]   string? Error
 );

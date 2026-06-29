@@ -68,6 +68,17 @@ interface AntennaGeniusStatus {
     portB: PortStatus;
 }
 
+interface ManualSettings {
+    manualIpAddress: string;
+    manualPort: number;
+}
+
+interface TestResult {
+    ok: boolean;
+    version: string;
+    error: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Styles — single <style> tag injected once. Token vars (--accent, --tx,
 // --panel-bot, --border-mid, --text-primary) are referenced where present on
@@ -240,6 +251,81 @@ const STYLES = `
     color: #ffffff;
     animation: antgen-pulse 1s ease-in-out infinite;
 }
+.antgen-settings {
+    border-top: 1px solid var(--border-mid, #2a323d);
+    padding-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.antgen-settings-title {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-primary, #e6ebf2);
+}
+.antgen-settings-hint {
+    font-size: 11px;
+    color: var(--text-muted, #8a95a3);
+    line-height: 1.4;
+}
+.antgen-settings-row {
+    display: flex;
+    gap: 8px;
+}
+.antgen-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+    font-size: 11px;
+    color: var(--text-muted, #8a95a3);
+}
+.antgen-field-port { flex: 0 0 84px; }
+.antgen-field input {
+    font-family: ui-monospace, 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-primary, #e6ebf2);
+    background: var(--panel-bot, #1a1f26);
+    border: 1px solid var(--border-mid, #2a323d);
+    border-radius: 4px;
+    padding: 5px 7px;
+}
+.antgen-field input:focus {
+    outline: none;
+    border-color: var(--accent, #4a9eff);
+}
+.antgen-settings-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.antgen-action {
+    font-family: 'Archivo Narrow', system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 4px;
+    border: 1px solid var(--accent, #4a9eff);
+    background: var(--accent, #4a9eff);
+    color: #ffffff;
+    cursor: pointer;
+    transition: opacity 100ms ease;
+}
+.antgen-action.is-secondary {
+    background: var(--panel-bot, #1a1f26);
+    color: var(--text-primary, #e6ebf2);
+    border-color: var(--border-mid, #2a323d);
+}
+.antgen-action:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+.antgen-settings-status {
+    font-size: 11px;
+    color: var(--text-muted, #8a95a3);
+}
 `;
 
 let stylesInjected = false;
@@ -320,6 +406,126 @@ function AntennaRow({
     );
 }
 
+function ConnectionSettings({ api }: { api: ZeusPluginApi }) {
+    const [ip, setIp] = useState('');
+    const [port, setPort] = useState(9007);
+    const [loaded, setLoaded] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [testing, setTesting] = useState(false);
+    const [status, setStatus] = useState<string | null>(null);
+
+    useEffect(() => {
+        let active = true;
+        (async () => {
+            try {
+                const res = await api.callBackend('GET', '/settings');
+                if (!active) return;
+                if (res.ok) {
+                    const s = (await res.json()) as ManualSettings;
+                    setIp(s.manualIpAddress ?? '');
+                    setPort(Number.isFinite(s.manualPort) ? s.manualPort : 9007);
+                }
+            } catch {
+                /* leave defaults */
+            } finally {
+                if (active) setLoaded(true);
+            }
+        })();
+        return () => { active = false; };
+    }, [api]);
+
+    const portValid = Number.isFinite(port) && port >= 1 && port <= 65535;
+    const canSave = loaded && portValid && !saving && !testing;
+    const canTest = loaded && ip.trim().length > 0 && portValid && !saving && !testing;
+
+    const save = async () => {
+        setSaving(true);
+        setStatus(null);
+        try {
+            const res = await api.callBackend('POST', '/settings', {
+                manualIpAddress: ip.trim(),
+                manualPort: port,
+            });
+            setStatus(res.ok ? 'Saved' : 'Save failed');
+        } catch {
+            setStatus('Save failed');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const test = async () => {
+        setTesting(true);
+        setStatus(null);
+        try {
+            const res = await api.callBackend('POST', '/test', {
+                ipAddress: ip.trim(),
+                port,
+            });
+            if (res.ok) {
+                const r = (await res.json()) as TestResult;
+                setStatus(
+                    r.ok
+                        ? `Reached device${r.version ? ` (firmware ${r.version})` : ''}`
+                        : `No response: ${r.error ?? 'unreachable'}`,
+                );
+            } else {
+                setStatus('Test failed');
+            }
+        } catch {
+            setStatus('Test failed');
+        } finally {
+            setTesting(false);
+        }
+    };
+
+    return (
+        <div className="antgen-settings">
+            <div className="antgen-settings-title">Connection settings</div>
+            <div className="antgen-settings-hint">
+                If your switch blocks discovery broadcasts, enter the Antenna Genius IP
+                and port to connect directly. Leave the IP blank to use auto-discovery.
+            </div>
+            <div className="antgen-settings-row">
+                <label className="antgen-field">
+                    <span>IP address</span>
+                    <input
+                        type="text"
+                        placeholder="192.168.10.24"
+                        value={ip}
+                        onChange={(e) => setIp(e.target.value)}
+                        disabled={!loaded}
+                    />
+                </label>
+                <label className="antgen-field antgen-field-port">
+                    <span>Port</span>
+                    <input
+                        type="number"
+                        min={1}
+                        max={65535}
+                        value={Number.isFinite(port) ? port : ''}
+                        onChange={(e) => setPort(parseInt(e.target.value, 10))}
+                        disabled={!loaded}
+                    />
+                </label>
+            </div>
+            <div className="antgen-settings-actions">
+                <button className="antgen-action" onClick={save} disabled={!canSave}>
+                    {saving ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                    className="antgen-action is-secondary"
+                    onClick={test}
+                    disabled={!canTest}
+                >
+                    {testing ? 'Testing…' : 'Test connection'}
+                </button>
+                {status && <span className="antgen-settings-status">{status}</span>}
+            </div>
+        </div>
+    );
+}
+
 function AntennaGeniusPanel({ api }: { api: ZeusPluginApi }) {
     const [devices, setDevices] = useState<AntennaGeniusStatus[] | null>(null);
 
@@ -362,6 +568,7 @@ function AntennaGeniusPanel({ api }: { api: ZeusPluginApi }) {
                     <div>No Antenna Genius devices found</div>
                     <div className="antgen-empty-hint">Waiting for discovery on UDP port 9007…</div>
                 </div>
+                <ConnectionSettings api={api} />
             </div>
         );
     }
@@ -411,6 +618,8 @@ function AntennaGeniusPanel({ api }: { api: ZeusPluginApi }) {
                     />
                 ))}
             </div>
+
+            <ConnectionSettings api={api} />
         </div>
     );
 }
