@@ -42,7 +42,7 @@ public sealed class AntennaGeniusPlugin : IZeusPlugin, IBackendPlugin
     private CancellationTokenSource? _manualCts;
     private string? _manualKey;
     private CancellationToken _runToken;
-    private AntennaGeniusSettings _settings = new();
+    private volatile AntennaGeniusSettings _settings = new();
 
     public async Task InitializeAsync(IPluginContext context, CancellationToken ct)
     {
@@ -156,23 +156,28 @@ public sealed class AntennaGeniusPlugin : IZeusPlugin, IBackendPlugin
 
     private async Task<IResult> PutSettings(AntennaGeniusSettings req)
     {
+        if (_ctx is null)
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
         if (req.ManualPort is < 1 or > 65535)
             return Results.BadRequest(new { error = "manualPort must be between 1 and 65535" });
 
-        var next = new AntennaGeniusSettings(
-            ManualIpAddress: (req.ManualIpAddress ?? string.Empty).Trim(),
-            ManualPort: req.ManualPort);
+        var ip = (req.ManualIpAddress ?? string.Empty).Trim();
+        // Empty IP is valid — it clears the override back to auto-discovery.
+        // Reject only a non-empty value that is neither a valid IP nor a
+        // plausible hostname, so a typo doesn't arm a forever-retrying dial.
+        if (ip.Length > 0 && Uri.CheckHostName(ip) == UriHostNameType.Unknown)
+            return Results.BadRequest(new { error = "manualIpAddress is not a valid IP address or hostname" });
 
+        var next = new AntennaGeniusSettings(ManualIpAddress: ip, ManualPort: req.ManualPort);
         _settings = next;
 
-        if (_ctx is not null)
-            await PersistSettingsAsync(_ctx, next).ConfigureAwait(false);
+        await PersistSettingsAsync(_ctx, next).ConfigureAwait(false);
 
         ApplyManualConnection(next, _runToken);
         return Results.Ok(next);
     }
 
-    private async Task<IResult> TestConnection(AntennaGeniusTestRequest req)
+    private async Task<IResult> TestConnection(AntennaGeniusTestRequest req, CancellationToken ct)
     {
         var ip = (req.IpAddress ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(ip))
@@ -180,7 +185,7 @@ public sealed class AntennaGeniusPlugin : IZeusPlugin, IBackendPlugin
         if (req.Port is < 1 or > 65535)
             return Results.BadRequest(new { error = "port must be between 1 and 65535" });
 
-        var result = await AntennaGeniusConnection.TestAsync(ip, req.Port, _ctx?.Logger).ConfigureAwait(false);
+        var result = await AntennaGeniusConnection.TestAsync(ip, req.Port, _ctx?.Logger, ct).ConfigureAwait(false);
         return Results.Ok(result);
     }
 
@@ -356,8 +361,22 @@ public sealed class AntennaGeniusPlugin : IZeusPlugin, IBackendPlugin
         if (string.IsNullOrEmpty(device.Serial))
             return;
 
-        if (!_connections.TryGetValue(device.Serial, out var connection))
+        if (_connections.TryGetValue(device.Serial, out var existing))
         {
+            existing.UpdateDiscovery(device);
+            return;
+        }
+
+        // Take the same lock ApplyManualConnection holds so the IP-dedup
+        // check-then-add is single-writer across the discovery and manual
+        // paths — otherwise the two could interleave and open two sockets to
+        // the same physical switch. The UDP receive loop is off the request
+        // path, so the lock is cheap here.
+        lock (_manualLock)
+        {
+            if (_connections.ContainsKey(device.Serial))
+                return;
+
             // Dedup by IP: if we already have a connection to this address
             // (e.g. a manual override pinned the same unit), don't open a
             // second socket to the same device.
@@ -367,15 +386,11 @@ public sealed class AntennaGeniusPlugin : IZeusPlugin, IBackendPlugin
             _ctx?.Logger.LogInformation("Discovered Antenna Genius: {Name} ({Serial}) at {Ip}:{Port}",
                 device.Name, device.Serial, device.IpAddress, device.Port);
 
-            connection = new AntennaGeniusConnection(device, _ctx!.Logger);
+            var connection = new AntennaGeniusConnection(device, _ctx!.Logger);
             if (_connections.TryAdd(device.Serial, connection))
             {
                 _ = connection.ConnectAsync(ct);
             }
-        }
-        else
-        {
-            connection.UpdateDiscovery(device);
         }
     }
 

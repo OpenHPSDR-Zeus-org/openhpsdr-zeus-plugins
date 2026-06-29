@@ -556,69 +556,74 @@ function AntennaGeniusPanel({ api }: { api: ZeusPluginApi }) {
         void api.callBackend('POST', '/select-antenna', { serial, portId, antennaId });
     };
 
-    if (devices === null) {
-        return <div className="antgen-panel">Connecting…</div>;
-    }
+    // For v1 we surface the first device, matching the Log4YM widget. Multi-
+    // device support can come later (tabs / selector).
+    const device = devices && devices.length > 0 ? devices[0] : undefined;
+    const portABand = device?.bands.find(b => b.id === device.portA.band);
+    const portBBand = device?.bands.find(b => b.id === device.portB.band);
 
-    if (devices.length === 0) {
-        return (
-            <div className="antgen-panel">
-                <div className="antgen-empty">
-                    <div className="antgen-empty-glyph">○</div>
-                    <div>No Antenna Genius devices found</div>
-                    <div className="antgen-empty-hint">Waiting for discovery on UDP port 9007…</div>
-                </div>
-                <ConnectionSettings api={api} />
+    // The Connection settings section is rendered as the single, stable last
+    // child of one panel wrapper in every state, so it does not unmount (and
+    // lose its in-progress status / inputs) when the panel transitions between
+    // "connecting", "no device", and "device present".
+    let content: React.ReactNode;
+    if (devices === null) {
+        content = <div className="antgen-empty"><div>Connecting…</div></div>;
+    } else if (!device) {
+        content = (
+            <div className="antgen-empty">
+                <div className="antgen-empty-glyph">○</div>
+                <div>No Antenna Genius devices found</div>
+                <div className="antgen-empty-hint">Waiting for discovery on UDP port 9007…</div>
             </div>
+        );
+    } else {
+        content = (
+            <>
+                <div className="antgen-header">
+                    <span className="antgen-header-title">{device.deviceName || 'Antenna Genius'}</span>
+                    <span className="antgen-header-meta">
+                        <span>v{device.version || '?'}</span>
+                        <span className="antgen-sep">|</span>
+                        <span>{device.ipAddress}</span>
+                        <span className="antgen-sep">|</span>
+                        <ConnIndicator on={device.isConnected} />
+                    </span>
+                </div>
+
+                <div className="antgen-ports">
+                    <PortHeader
+                        label="Radio A"
+                        portClass="antgen-port-a"
+                        band={portABand}
+                        isTransmitting={device.portA.isTransmitting}
+                    />
+                    <PortHeader
+                        label="Radio B"
+                        portClass="antgen-port-b"
+                        band={portBBand}
+                        isTransmitting={device.portB.isTransmitting}
+                    />
+                </div>
+
+                <div className="antgen-list">
+                    {device.antennas.map((antenna) => (
+                        <AntennaRow
+                            key={antenna.id}
+                            antenna={antenna}
+                            device={device}
+                            onSelectA={() => selectAntenna(device.deviceSerial, 1, antenna.id)}
+                            onSelectB={() => selectAntenna(device.deviceSerial, 2, antenna.id)}
+                        />
+                    ))}
+                </div>
+            </>
         );
     }
 
-    // For v1 we surface the first device, matching the Log4YM widget. Multi-
-    // device support can come later (tabs / selector).
-    const device = devices[0];
-    const portABand = device.bands.find(b => b.id === device.portA.band);
-    const portBBand = device.bands.find(b => b.id === device.portB.band);
-
     return (
         <div className="antgen-panel">
-            <div className="antgen-header">
-                <span className="antgen-header-title">{device.deviceName || 'Antenna Genius'}</span>
-                <span className="antgen-header-meta">
-                    <span>v{device.version || '?'}</span>
-                    <span className="antgen-sep">|</span>
-                    <span>{device.ipAddress}</span>
-                    <span className="antgen-sep">|</span>
-                    <ConnIndicator on={device.isConnected} />
-                </span>
-            </div>
-
-            <div className="antgen-ports">
-                <PortHeader
-                    label="Radio A"
-                    portClass="antgen-port-a"
-                    band={portABand}
-                    isTransmitting={device.portA.isTransmitting}
-                />
-                <PortHeader
-                    label="Radio B"
-                    portClass="antgen-port-b"
-                    band={portBBand}
-                    isTransmitting={device.portB.isTransmitting}
-                />
-            </div>
-
-            <div className="antgen-list">
-                {device.antennas.map((antenna) => (
-                    <AntennaRow
-                        key={antenna.id}
-                        antenna={antenna}
-                        device={device}
-                        onSelectA={() => selectAntenna(device.deviceSerial, 1, antenna.id)}
-                        onSelectB={() => selectAntenna(device.deviceSerial, 2, antenna.id)}
-                    />
-                ))}
-            </div>
-
+            {content}
             <ConnectionSettings api={api} />
         </div>
     );

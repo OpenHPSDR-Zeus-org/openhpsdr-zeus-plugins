@@ -12,7 +12,7 @@
     "assembly": "AntennaGenius.dll",
     "type": "Openhpsdr.Zeus.Plugins.AntennaGenius.AntennaGeniusPlugin"
   },
-  "capabilities": ["NetworkAccess"],
+  "capabilities": ["NetworkAccess", "PersistSettings"],
   "ui": {
     "modules": ["ui/antennagenius.es.js"],
     "panels": [
