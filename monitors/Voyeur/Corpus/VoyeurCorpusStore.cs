@@ -246,10 +246,16 @@ public sealed class VoyeurCorpusStore
     // path separator into the file name.
     private static string SanitizeCallsign(string callsign)
     {
-        Span<char> buf = stackalloc char[callsign.Length];
+        // Cap the stack buffer: a real callsign is tiny, but a hostile
+        // transcript-derived string could be long — never stackalloc unbounded.
+        int cap = Math.Min(callsign.Length, 64);
+        Span<char> buf = stackalloc char[cap];
         int n = 0;
         foreach (var c in callsign)
+        {
+            if (n >= cap) break;
             if (char.IsLetterOrDigit(c)) buf[n++] = char.ToUpperInvariant(c);
+        }
         return n == 0 ? "unknown" : new string(buf[..n]);
     }
 

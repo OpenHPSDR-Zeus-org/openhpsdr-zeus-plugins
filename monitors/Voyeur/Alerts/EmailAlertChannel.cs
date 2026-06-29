@@ -97,8 +97,11 @@ public sealed class EmailAlertChannel : IAlertChannel
         {
             // SmtpClient.SendMailAsync predates CancellationToken; honour ct by
             // racing it so a wedged relay can't pin the alert worker forever.
+            // The delay is linked to a CTS we cancel in finally so the Task.Delay
+            // registration on the long-lived plugin token never leaks per send.
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var send = client.SendMailAsync(message);
-            var done = await Task.WhenAny(send, Task.Delay(Timeout.Infinite, ct)).ConfigureAwait(false);
+            var done = await Task.WhenAny(send, Task.Delay(Timeout.Infinite, linked.Token)).ConfigureAwait(false);
             if (done != send) { client.SendAsyncCancel(); ct.ThrowIfCancellationRequested(); }
             await send.ConfigureAwait(false); // surface any send exception
         }

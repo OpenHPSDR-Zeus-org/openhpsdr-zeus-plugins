@@ -33,15 +33,20 @@ public sealed record CallsignSettings
     /// <summary>
     /// Beam width for both the whisper decode (passed to <c>--beam-size</c>) and
     /// the roster fuzzy-match (max top-ranked roster entries considered before
-    /// gating). Larger = more accurate, slightly slower. 0 or negative ⇒ no cap
-    /// on the roster scan.
+    /// gating). Larger = more accurate, slightly slower.
+    ///
+    /// DEFAULT 0 = greedy: when 0, the whisper-cli command is BYTE-IDENTICAL to
+    /// today (no <c>--beam-size</c> is added), so the proven default decode path
+    /// is unchanged. A positive value (e.g. 8) is OPT-IN. 0 or negative also
+    /// means "no cap" on the roster fuzzy-match scan.
     /// </summary>
-    public int BeamSize { get; init; } = 8;
+    public int BeamSize { get; init; } = 0;
 
     /// <summary>
-    /// When true (default), the transcriber requests per-token probabilities
-    /// (<c>-oj</c>) so a confidence can be attached to each attribution. Purely a
-    /// data-capture toggle — it never changes which call is chosen.
+    /// When true, the transcriber requests per-token probabilities (<c>-oj</c>)
+    /// so a confidence can be attached to each attribution. Purely a data-capture
+    /// toggle — it never changes which call is chosen. DEFAULT false: confidence
+    /// capture is deferred/off so the default decode path is unchanged.
     /// </summary>
-    public bool CaptureConfidence { get; init; } = true;
+    public bool CaptureConfidence { get; init; } = false;
 }

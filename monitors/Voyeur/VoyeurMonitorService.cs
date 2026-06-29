@@ -70,6 +70,11 @@ public sealed class VoyeurMonitorService : IDisposable
     private long _capturedMs;
     private int _sampleRate = 48_000;
 
+    // Segmentation tunables (pre-roll / hang-trim / floor / max-over). Set on
+    // Start; the drain loop reads its own copy. VAD lives in the transcription
+    // service, NOT this audio path.
+    private SegSettings _segSettings = new();
+
     public VoyeurMonitorService(
         IRadioStateReader? radio,
         VoyeurStore store,
@@ -84,11 +89,13 @@ public sealed class VoyeurMonitorService : IDisposable
 
     /// <summary>Begin monitoring the radio's current frequency. Idempotent-ish:
     /// returns the existing status if already active.</summary>
-    public VoyeurStatusDto Start(bool keepAudio = true)
+    public VoyeurStatusDto Start(bool keepAudio = true, SegSettings? settings = null)
     {
         lock (_ctrl)
         {
             if (_active) return Status();
+
+            _segSettings = settings ?? new SegSettings();
 
             long freq = _radio?.FrequencyHz ?? 0;
             string mode = _radio?.Mode ?? "";
@@ -108,7 +115,8 @@ public sealed class VoyeurMonitorService : IDisposable
             _active = true;
 
             var ct = _drainCts.Token;
-            _drain = new Thread(() => DrainLoop(session, keepAudio, ct))
+            var segSettings = _segSettings;
+            _drain = new Thread(() => DrainLoop(session, keepAudio, segSettings, ct))
             {
                 IsBackground = true,
                 Name = "voyeur-drain",
@@ -204,12 +212,14 @@ public sealed class VoyeurMonitorService : IDisposable
     }
 
     // ---- CONSUMER (drain thread, below-normal priority) — all real work here ----
-    private void DrainLoop(VoyeurSessionDocument session, bool keepAudio, CancellationToken ct)
+    private void DrainLoop(VoyeurSessionDocument session, bool keepAudio, SegSettings settings, CancellationToken ct)
     {
         var ring = _ring;
         if (ring is null) return;
 
-        var seg = new VoyeurSegmenter(_sampleRate);
+        var seg = new VoyeurSegmenter(_sampleRate, settings);
+        var preRoll = PreRollBuffer.ForMs(settings.PreRollMs, _sampleRate);
+        var pendingTail = new List<float>(); // trailing-quiet blocks; flushed if speech resumes, dropped on close
         var scratch = new float[4096];
         string? audioDir = keepAudio ? _store.SessionAudioDir(session.Id) : null;
 
@@ -225,6 +235,9 @@ public sealed class VoyeurMonitorService : IDisposable
                 writer.Dispose();
                 writer = null;
             }
+            // The buffered trailing hang is intentionally NOT written → trimmed
+            // from the saved WAV. Clear it so it can't leak into the next over.
+            pendingTail.Clear();
             var doc = new VoyeurSegmentDocument
             {
                 SessionId = session.Id,
@@ -242,7 +255,8 @@ public sealed class VoyeurMonitorService : IDisposable
             if (file is not null && audioDir is not null)
             {
                 _transcription.Enqueue(new Zeus.Server.Voyeur.VoyeurTranscriptionService.Job(
-                    session.Id, doc.Id, Path.Combine(audioDir, file), r.DurationMs));
+                    session.Id, doc.Id, Path.Combine(audioDir, file), r.DurationMs,
+                    session.FreqHz, session.Band));
             }
             _log.LogDebug("voyeur: captured over {Dur}ms peak={Peak:F1}dBFS", r.DurationMs, r.PeakDbfs);
         }
@@ -267,14 +281,53 @@ public sealed class VoyeurMonitorService : IDisposable
                         {
                             var path = Path.Combine(audioDir, $"over-{overStart:yyyyMMdd-HHmmss-fff}.wav");
                             writer = new WavWriter(path, _sampleRate);
+                            // Prepend the ~500 ms captured BEFORE the gate opened
+                            // so the leading callsign / speech attack survives.
+                            var pre = preRoll.Snapshot();
+                            if (pre.Length > 0) writer.Append(pre);
                             writer.Append(block);
                         }
+                        preRoll.Clear();
+                        pendingTail.Clear();
                         break;
+
                     case VoyeurSegmenter.Transition.Continuing:
-                        writer?.Append(block);
+                        if (seg.InHang)
+                        {
+                            // Trailing quiet: hold (don't commit yet). Resumed
+                            // speech flushes it; close drops it. Copy — scratch is
+                            // reused on the next read.
+                            if (writer is not null) pendingTail.AddRange(block.ToArray());
+                        }
+                        else
+                        {
+                            if (pendingTail.Count > 0)
+                            {
+                                writer?.Append(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(pendingTail));
+                                pendingTail.Clear();
+                            }
+                            writer?.Append(block);
+                        }
                         break;
+
                     case VoyeurSegmenter.Transition.Ended:
-                        CloseOver(r);
+                        CloseOver(r); // pendingTail (the hang) is intentionally NOT written → trimmed
+                        break;
+
+                    case VoyeurSegmenter.Transition.Idle:
+                        // A sub-minimum over that just closed leaves an open
+                        // writer with a partial .wav — dispose + delete it and
+                        // drop any buffered tail so file handles / orphan WAVs
+                        // don't leak on an unattended monitor.
+                        if (writer is not null)
+                        {
+                            var partial = writer.Path;
+                            writer.Dispose();
+                            writer = null;
+                            TryDeleteFile(partial);
+                            pendingTail.Clear();
+                        }
+                        preRoll.Write(block); // keep a rolling pre-speech tail
                         break;
                 }
             }
@@ -282,9 +335,18 @@ public sealed class VoyeurMonitorService : IDisposable
             // Session stopping — flush any in-flight over.
             var tail = seg.Flush();
             if (tail.Transition == VoyeurSegmenter.Transition.Ended)
+            {
                 CloseOver(tail);
-            else
-                writer?.Dispose();
+            }
+            else if (writer is not null)
+            {
+                // Sub-minimum in-flight over at stop: drop its partial WAV too.
+                var partial = writer.Path;
+                writer.Dispose();
+                writer = null;
+                TryDeleteFile(partial);
+                pendingTail.Clear();
+            }
         }
         catch (Exception ex)
         {
@@ -294,6 +356,11 @@ public sealed class VoyeurMonitorService : IDisposable
             writer?.Dispose();
             _log.LogError(ex, "voyeur: drain loop failed — monitor degraded, RX unaffected");
         }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { /* best effort */ }
     }
 
     public void Dispose()

@@ -161,7 +161,10 @@ public sealed class VoyeurAlertService
             foreach (var match in matches)
             {
                 ct.ThrowIfCancellationRequested();
-                var key = match.Watchword.Type + ":" + match.MatchedText.ToUpperInvariant();
+                // Cooldown key is the canonical WATCHWORD (upper-invariant), not
+                // the raw matched span — so every transcript phrasing that hits
+                // the same watchword shares one cooldown bucket.
+                var key = match.Watchword.Type + ":" + match.Watchword.Text.ToUpperInvariant();
                 if (!_gate.TryFire(key, _now(), settings.CooldownSeconds, settings.GlobalRateCapPer10Min))
                 {
                     _log.LogDebug("voyeur.alerts suppressed (cooldown/rate-cap) ww={Ww}", match.Watchword.Text);

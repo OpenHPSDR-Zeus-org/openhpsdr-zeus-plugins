@@ -58,7 +58,9 @@ public sealed class WhisperSttEngine : ISttEngine
         if (opt.Hotwords.Count > 0 && _log.IsEnabled(LogLevel.Debug))
             _log.LogDebug("voyeur.whisper hotword-bias prompt={Prompt}", ComposePrompt(opt.Hotwords));
 
-        var text = await _whisper.TranscribeAsync(wavPath16k, opt.EffectiveTimeout, ct);
+        // Feed the contextual phrases (the confirmed session roster) through to
+        // whisper as a dynamic prompt suffix. Empty ⇒ byte-identical default path.
+        var text = await _whisper.TranscribeAsync(wavPath16k, opt.EffectiveTimeout, ct, opt.Hotwords);
         return string.IsNullOrWhiteSpace(text)
             ? SttResult.NoSpeech()
             : new SttResult(text, EngineAvailable: true);

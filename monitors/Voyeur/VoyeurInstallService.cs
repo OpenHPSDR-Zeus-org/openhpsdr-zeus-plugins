@@ -46,12 +46,16 @@ public sealed class VoyeurInstallService
     public sealed record Progress(
         Phase Phase, int Percent, string Message, string? Item,
         bool ModelPresent, bool BinaryPresent,
-        bool DigestModelPresent, bool DigestBinaryPresent, string Rid);
+        bool DigestModelPresent, bool DigestBinaryPresent, string Rid,
+        bool SherpaEnginePresent = false, bool ParakeetModelPresent = false,
+        bool VadModelPresent = false);
 
     private readonly ILogger _log;
     private readonly IHttpClientFactory _httpFactory;
     private readonly WhisperTranscriber _whisper;
     private readonly LlamaSummarizer _llama;
+    private readonly SherpaParakeetTranscriber _parakeet;
+    private readonly SileroVad _vad;
 
     private readonly object _gate = new();
     private Phase _phase = Phase.Idle;
@@ -75,7 +79,7 @@ public sealed class VoyeurInstallService
     // Face files (whisper.cpp + Qwen GGUF, both permissively licensed). ENGINES
     // are the native binaries + their dylibs, shipped as a per-RID zip that we
     // extract into the engine's bin/ dir (where discovery already looks).
-    private enum Kind { Whisper, Llama, EngineWhisper, EngineLlama }
+    private enum Kind { Whisper, Llama, EngineWhisper, EngineLlama, EngineSherpa, Parakeet, SileroVad }
     // Archive=true ⇒ payload is a zip to extract into DestDir; else a single
     // file moved into place atomically.
     private sealed record ModelDef(string Url, long MinBytes, string Label, Kind Kind, string FileName, bool Archive = false);
@@ -99,6 +103,16 @@ public sealed class VoyeurInstallService
             300_000_000, "Digest LLM: Small — ~0.5 GB, fast", Kind.Llama, "qwen2.5-0.5b-instruct-q4_k_m.gguf"),
         ["digest-medium"] = new("https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
             900_000_000, "Digest LLM: Medium — ~1 GB, better summaries", Kind.Llama, "qwen2.5-1.5b-instruct-q4_k_m.gguf"),
+        // --- sherpa engine + Parakeet (opt-in alternative STT) + Silero VAD ---
+        // Path 1: CI repacks the upstream sherpa-onnx .tar.bz2 → per-rid .zip
+        // (the BCL has no bzip2 decoder), so the existing ExtractEngine/{rid}
+        // path is reused unchanged. Keep CI asset names aligned to Zeus rids.
+        ["engine-sherpa"] = new(EngineBase + "/sherpa-{rid}.zip",
+            1_000_000, "Speech engine (sherpa-onnx) — required for Parakeet/VAD", Kind.EngineSherpa, "sherpa-engine.zip", Archive: true),
+        ["parakeet"] = new(EngineBase + "/parakeet-tdt-06b-int8.zip",
+            600_000_000, "Transcription: Parakeet-TDT 0.6B (int8) — ~660 MB, high accuracy", Kind.Parakeet, "parakeet.zip", Archive: true),
+        ["silero-vad"] = new("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+            1_000_000, "VAD: Silero (optional — sharper 'over' boundaries)", Kind.SileroVad, "silero_vad.onnx"),
     };
 
     private static string DestDir(Kind k) => k switch
@@ -107,6 +121,9 @@ public sealed class VoyeurInstallService
         Kind.Whisper => WhisperTranscriber.ModelDir,
         Kind.EngineLlama => LlamaSummarizer.BinDir,
         Kind.EngineWhisper => WhisperTranscriber.BinDir,
+        Kind.EngineSherpa => SherpaParakeetTranscriber.BinDir,
+        Kind.Parakeet => SherpaParakeetTranscriber.ModelDir,
+        Kind.SileroVad => SileroVad.ModelDir,
         _ => WhisperTranscriber.ModelDir,
     };
 
@@ -114,12 +131,16 @@ public sealed class VoyeurInstallService
         ILogger log,
         IHttpClientFactory httpFactory,
         WhisperTranscriber whisper,
-        LlamaSummarizer llama)
+        LlamaSummarizer llama,
+        SherpaParakeetTranscriber parakeet,
+        SileroVad vad)
     {
         _log = log;
         _httpFactory = httpFactory;
         _whisper = whisper;
         _llama = llama;
+        _parakeet = parakeet;
+        _vad = vad;
     }
 
     public static IEnumerable<object> AvailableModels =>
@@ -129,8 +150,10 @@ public sealed class VoyeurInstallService
     {
         Kind.EngineWhisper => "engine-whisper",
         Kind.EngineLlama => "engine-llama",
+        Kind.EngineSherpa => "engine-sherpa",
+        Kind.SileroVad => "vad",
         Kind.Llama => "digest",
-        _ => "transcription",
+        _ => "transcription",   // Whisper + Parakeet group under transcription
     };
 
     public Progress Status()
@@ -143,7 +166,10 @@ public sealed class VoyeurInstallService
                 BinaryPresent: _whisper.CliPath is not null,
                 DigestModelPresent: _llama.ModelPath is not null,
                 DigestBinaryPresent: _llama.CliPath is not null,
-                Rid: Rid());
+                Rid: Rid(),
+                SherpaEnginePresent: _parakeet.CliPath is not null,
+                ParakeetModelPresent: _parakeet.ResolvedModelDir is not null,
+                VadModelPresent: _vad.ModelPath is not null);
         }
     }
 

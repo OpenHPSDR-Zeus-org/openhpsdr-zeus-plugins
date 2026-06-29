@@ -30,8 +30,9 @@ using Microsoft.Extensions.Logging;
 using Zeus.Plugins.Contracts;
 using Zeus.Plugins.Contracts.Audio;
 using Zeus.Plugins.Contracts.Extensions;
-using Zeus.Server;          // VoyeurMonitorService, BandUtils
-using Zeus.Server.Voyeur;   // store / whisper / llama / install / transcription / DTOs
+using Zeus.Server;              // VoyeurMonitorService, BandUtils
+using Zeus.Server.Voyeur;       // store / whisper / llama / install / transcription / DTOs
+using Zeus.Server.Voyeur.Alerts; // watchword alerts service + channels + DTOs
 
 namespace Openhpsdr.Zeus.Plugins.Voyeur;
 
@@ -40,41 +41,90 @@ namespace Openhpsdr.Zeus.Plugins.Voyeur;
 // UI's POST bodies are unchanged.
 public sealed record VoyeurStartRequest(bool? KeepAudio);
 public sealed record VoyeurInstallRequest(string? Model);
+public sealed record VoyeurEngineConfigRequest(string? Engine, string? Provider, bool? GpuEnabled);
+public sealed record VoyeurAlertTestRequest(string? Channel);
 
 public sealed class VoyeurPlugin : IZeusPlugin, IBackendPlugin, IRxAudioTapPlugin
 {
     private IPluginContext? _ctx;
     private VoyeurStore? _store;
-    private WhisperTranscriber? _whisper;
+    private WhisperTranscriber? _whisper;            // concrete: install/status + STT adapter source
+    private SherpaParakeetTranscriber? _parakeet;    // concrete: install/status (opt-in Parakeet)
     private LlamaSummarizer? _llama;
+    private SileroVad? _vad;                          // optional VAD (transcription refine + install)
+    private ISttEngine? _whisperEngine;
+    private ISttEngine? _parakeetEngine;
     private VoyeurInstallService? _install;
     private VoyeurTranscriptionService? _transcription;
     private VoyeurMonitorService? _monitor;
+    private VoyeurCorpusStore? _corpus;
+    private VoyeurAlertService? _alerts;
+
+    // Live operator settings (additive, default-safe). Volatile so the
+    // transcription worker / endpoints see updates without locking.
+    private volatile EngineSettings _engineSettings = EngineSettings.Default;
+    private volatile SegSettings _seg = new();
 
     private CancellationTokenSource? _runCts;
     private Task? _runTask;
+    private Task? _alertsTask;
 
-    public Task InitializeAsync(IPluginContext context, CancellationToken ct)
+    public async Task InitializeAsync(IPluginContext context, CancellationToken ct)
     {
         _ctx = context;
         var log = context.Logger;
 
-        _whisper = new WhisperTranscriber(log);
+        // Hydrate persisted settings (all default-safe: Whisper engine, energy
+        // gate, alerts/corpus OFF). PsEnabled / radio path are untouched.
+        var callsigns = await context.Settings.GetAsync<CallsignSettings>("callsigns", ct) ?? new CallsignSettings();
+        _engineSettings = await context.Settings.GetAsync<EngineSettings>(EngineSettings.SettingsKey, ct) ?? EngineSettings.Default;
+        _seg = await context.Settings.GetAsync<SegSettings>("voyeur.seg", ct) ?? new SegSettings();
+        var corpusSettings = await context.Settings.GetAsync<CorpusSettings>("corpus", ct);
+
+        _whisper = new WhisperTranscriber(log, callsigns);
+        _parakeet = new SherpaParakeetTranscriber(log);
         _llama = new LlamaSummarizer(log);
-        _install = new VoyeurInstallService(log, new SimpleHttpClientFactory(), _whisper, _llama);
+        _vad = new SileroVad(log);
+        _whisperEngine = new WhisperSttEngine(_whisper, log);
+        _parakeetEngine = _parakeet;
+
+        _install = new VoyeurInstallService(log, new SimpleHttpClientFactory(), _whisper, _llama, _parakeet, _vad);
         _store = new VoyeurStore(log);
-        _transcription = new VoyeurTranscriptionService(_whisper, _store, context.Qrz, log);
+
+        // Training-corpus retention (default OFF — hydrate the saved opt-in/cap).
+        _corpus = new VoyeurCorpusStore(Path.Combine(_store.AudioRoot, "corpus"), log);
+        if (corpusSettings is not null) _corpus.Settings = corpusSettings;
+
+        // Watchword alerts — created BEFORE transcription so it can be injected;
+        // fan-out order = ctor order.
+        _alerts = new VoyeurAlertService(
+            _store,
+            context.Settings,
+            new IAlertChannel[]
+            {
+                new EmailAlertChannel(),
+                new NtfyAlertChannel(),
+                new SmsGatewayAlertChannel(),
+            },
+            log);
+
+        _transcription = new VoyeurTranscriptionService(
+            _whisperEngine, _parakeetEngine, () => _engineSettings,
+            _store, context.Qrz, log, callsigns, _corpus, _alerts, _vad);
+        _transcription.Configure(_seg);
+
         _monitor = new VoyeurMonitorService(context.Radio, _store, _transcription, log);
 
-        // Drive the transcription worker loop (the BackgroundService host machinery
-        // is gone — the plugin owns the lifetime).
+        // Drive the worker loops (the BackgroundService host machinery is gone —
+        // the plugin owns the lifetime). Both cancel on _runCts.
         _runCts = new CancellationTokenSource();
         _runTask = _transcription.RunAsync(_runCts.Token);
+        _alertsTask = _alerts.RunAsync(_runCts.Token);
 
         log.LogInformation(
-            "voyeur.plugin.init transcription={Asr} digest={Digest} radio={Radio} qrz={Qrz}",
-            _whisper.Available, _llama.Available, context.Radio is not null, context.Qrz is not null);
-        return Task.CompletedTask;
+            "voyeur.plugin.init whisper={Asr} parakeet={Pk} digest={Digest} radio={Radio} qrz={Qrz}",
+            _whisperEngine.Available, _parakeetEngine.Available, _llama.Available,
+            context.Radio is not null, context.Qrz is not null);
     }
 
     public async Task ShutdownAsync(CancellationToken ct)
@@ -83,11 +133,12 @@ public sealed class VoyeurPlugin : IZeusPlugin, IBackendPlugin, IRxAudioTapPlugi
         try
         {
             _runCts?.Cancel();
-            if (_runTask is not null)
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(3));
+            foreach (var t in new[] { _runTask, _alertsTask })
             {
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeout.CancelAfter(TimeSpan.FromSeconds(3));
-                try { await _runTask.WaitAsync(timeout.Token).ConfigureAwait(false); }
+                if (t is null) continue;
+                try { await t.WaitAsync(timeout.Token).ConfigureAwait(false); }
                 catch (OperationCanceledException) { /* expected on shutdown */ }
             }
         }
@@ -96,9 +147,11 @@ public sealed class VoyeurPlugin : IZeusPlugin, IBackendPlugin, IRxAudioTapPlugi
             _monitor?.Dispose();
             _store?.Dispose();
             _runCts?.Dispose();
-            _ctx = null; _store = null; _whisper = null; _llama = null;
+            _ctx = null; _store = null; _whisper = null; _parakeet = null; _llama = null;
+            _vad = null; _whisperEngine = null; _parakeetEngine = null;
             _install = null; _transcription = null; _monitor = null;
-            _runCts = null; _runTask = null;
+            _corpus = null; _alerts = null;
+            _runCts = null; _runTask = null; _alertsTask = null;
         }
     }
 
@@ -140,8 +193,54 @@ public sealed class VoyeurPlugin : IZeusPlugin, IBackendPlugin, IRxAudioTapPlugi
         endpoints.MapPost("install/cancel", () => { Install.Cancel(); return Results.Ok(Install.Status()); });
 
         endpoints.MapPost("start", (VoyeurStartRequest? body) =>
-            Results.Ok(Monitor.Start(keepAudio: body?.KeepAudio ?? true)));
+            Results.Ok(Monitor.Start(keepAudio: body?.KeepAudio ?? true, settings: _seg)));
         endpoints.MapPost("stop", () => Results.Ok(Monitor.Stop()));
+
+        // --- engine selection (Whisper locked default | Parakeet opt-in) -------
+        endpoints.MapGet("config/engine", () => Results.Ok(EngineConfigDto()));
+        endpoints.MapPut("config/engine", async (VoyeurEngineConfigRequest body, CancellationToken ct) =>
+        {
+            var cur = _engineSettings;
+            var kind = cur.Engine;
+            if (!string.IsNullOrWhiteSpace(body?.Engine) &&
+                Enum.TryParse<SttEngineKind>(body!.Engine, ignoreCase: true, out var k))
+                kind = k;
+            var next = new EngineSettings(
+                Engine: kind,
+                Provider: string.IsNullOrWhiteSpace(body?.Provider) ? cur.Provider : body!.Provider!.Trim().ToLowerInvariant(),
+                GpuEnabled: body?.GpuEnabled ?? cur.GpuEnabled);
+            _engineSettings = next;
+            await (_ctx?.Settings.SetAsync(EngineSettings.SettingsKey, next, ct) ?? Task.CompletedTask);
+            return Results.Ok(EngineConfigDto());
+        });
+
+        // --- segmentation tunables (pre-roll / hang / floor / max-over / VAD) ---
+        endpoints.MapGet("config/seg", () => Results.Ok(_seg));
+        endpoints.MapPut("config/seg", async (SegSettings body, CancellationToken ct) =>
+        {
+            var s = body ?? new SegSettings();
+            _seg = s;
+            _transcription?.Configure(s); // VAD refine picks it up now; gate on next Start
+            await (_ctx?.Settings.SetAsync("voyeur.seg", s, ct) ?? Task.CompletedTask);
+            return Results.Ok(_seg);
+        });
+
+        // --- watchword alerts (config redacted; secrets write-only) ------------
+        endpoints.MapGet("alerts/config", async () => Results.Ok(await Alerts.GetConfigAsync()));
+        endpoints.MapPut("alerts/config", async (AlertConfigUpdate body) =>
+            Results.Ok(await Alerts.UpdateConfigAsync(body)));
+        endpoints.MapPost("alerts/test", async (VoyeurAlertTestRequest? body) =>
+            Results.Ok(await Alerts.TestAsync(body?.Channel)));
+
+        // --- training-corpus retention (default OFF) ---------------------------
+        endpoints.MapGet("corpus", () => Results.Ok(Corpus.GetStats()));
+        endpoints.MapPatch("corpus", async (CorpusSettings body, CancellationToken ct) =>
+        {
+            var s = new CorpusSettings(body?.RetainCorpus ?? false, body?.MaxClips ?? 5000);
+            Corpus.Settings = s;
+            await (_ctx?.Settings.SetAsync("corpus", s, ct) ?? Task.CompletedTask);
+            return Results.Ok(Corpus.GetStats());
+        });
 
         endpoints.MapGet("sessions", () => Results.Ok(Store.ListSessions()));
         endpoints.MapGet("sessions/{id}", (string id) =>
@@ -193,6 +292,22 @@ public sealed class VoyeurPlugin : IZeusPlugin, IBackendPlugin, IRxAudioTapPlugi
     private WhisperTranscriber Whisper => _whisper ?? throw NotInit();
     private LlamaSummarizer Llama => _llama ?? throw NotInit();
     private VoyeurInstallService Install => _install ?? throw NotInit();
+    private VoyeurAlertService Alerts => _alerts ?? throw NotInit();
+    private VoyeurCorpusStore Corpus => _corpus ?? throw NotInit();
+
+    private object EngineConfigDto() => new
+    {
+        engine = _engineSettings.Engine.ToString(),       // "Whisper" | "Parakeet"
+        provider = _engineSettings.Provider,
+        gpuEnabled = _engineSettings.GpuEnabled,
+        resolvedProvider = _engineSettings.ResolveProvider(),
+        available = new
+        {
+            whisper = _whisperEngine?.Available ?? false,
+            parakeet = _parakeetEngine?.Available ?? false,
+        },
+    };
+
     private static InvalidOperationException NotInit() => new("VoyeurPlugin not initialised");
 }
 
