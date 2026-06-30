@@ -932,7 +932,18 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
               <input
                 type="checkbox"
                 checked={alertDraft.enabled}
-                onChange={(e) => editAlert((d) => ({ ...d, enabled: e.target.checked }))}
+                onChange={(e) =>
+                  editAlert((d) => ({
+                    ...d,
+                    enabled: e.target.checked,
+                    // Seed one empty, editable row on first enable so there is
+                    // always a place to type a callsign/keyword right away.
+                    watchwords:
+                      e.target.checked && d.watchwords.length === 0
+                        ? [{ text: '', type: 'Callsign', enabled: true }]
+                        : d.watchwords,
+                  }))
+                }
               />
               Enable watchword alerts
             </label>
@@ -1041,6 +1052,13 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
                   {testResults.email.ok ? '✓ ' : '✕ '}{testResults.email.detail}
                 </div>
               )}
+              <div className="voyeur-help-hint">
+                Use your own e-mail provider's SMTP. Gmail example: host{' '}
+                <code>smtp.gmail.com</code>, port <code>587</code>, username = your full
+                address, password = a Google <strong>App Password</strong> (not your normal
+                login), TLS on. The “To” address is where alerts are sent (can be the same
+                address, or your phone's email-to-SMS gateway).
+              </div>
               <div className="voyeur-grid2">
                 <input
                   type="text"
