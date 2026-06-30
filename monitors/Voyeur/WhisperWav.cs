@@ -60,6 +60,35 @@ internal static class WhisperWav
         return tmp;
     }
 
+    /// <summary>
+    /// Write a throw-away WAV containing only <c>[startSeconds, endSeconds]</c> of
+    /// the source (float32 mono, source sample rate preserved), and return its
+    /// path — used by the optional VAD refine to TRIM a saved over to just the
+    /// detected speech before transcription. Returns <c>null</c> on any failure
+    /// (unreadable source, empty/zero-length range); the ORIGINAL recording is
+    /// never modified. Never throws — the caller falls back to the full over.
+    /// </summary>
+    public static string? TrimToTemp(string srcPath, double startSeconds, double endSeconds)
+    {
+        try
+        {
+            if (!TryReadMono(srcPath, out float[] samples, out int rate) || samples.Length == 0 || rate <= 0)
+                return null;
+            int from = Math.Clamp((int)(startSeconds * rate), 0, samples.Length);
+            int to = Math.Clamp((int)Math.Ceiling(endSeconds * rate), from, samples.Length);
+            if (to <= from) return null;
+            var tmp = Path.Combine(
+                Path.GetTempPath(), "zeus-vadtrim-" + Guid.NewGuid().ToString("N") + ".wav");
+            using (var w = new Wav.WavWriter(tmp, rate))
+                w.Append(samples.AsSpan(from, to - from));
+            return tmp;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     // --- WAV reading (PCM 16/24/32 + IEEE float, any channel count → mono) ----
 
     private static bool TryReadMono(string path, out float[] mono, out int sampleRate)

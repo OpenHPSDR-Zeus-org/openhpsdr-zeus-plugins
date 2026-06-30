@@ -252,7 +252,10 @@ public sealed class VoyeurAlertService
             }
             catch (Exception ex)
             {
-                results.Add(new AlertTestResult(ch.Name, false, ex.Message));
+                // Generic client-facing detail — the raw exception can carry the
+                // relay host / topic URL / local clip path; keep it in the log only.
+                _log.LogWarning(ex, "voyeur.alerts test send failed ch={Ch}", ch.Name);
+                results.Add(new AlertTestResult(ch.Name, false, "send failed (check channel settings)"));
             }
         }
         return results;

@@ -278,7 +278,9 @@ public sealed class VoyeurInstallService
         catch (Exception ex)
         {
             TryDelete(tmpPath);
-            lock (_gate) { _phase = Phase.Error; _message = ex.Message; }
+            // Generic client-facing message — the raw exception can carry the
+            // download URL / host / local path, which we keep in the log only.
+            lock (_gate) { _phase = Phase.Error; _message = $"download of '{modelId}' failed (see logs)"; }
             _log.LogWarning(ex, "voyeur.install model {Model} failed", modelId);
         }
     }
@@ -309,6 +311,16 @@ public sealed class VoyeurInstallService
                 var rel = entry.FullName.Replace('\\', '/');
                 var slash = rel.IndexOf('/');
                 var name = slash >= 0 ? rel[(slash + 1)..] : rel;
+                // Stock sherpa-onnx archives nest the executable under bin/ and the
+                // shared libraries under lib/ (e.g. "<top>/bin/sherpa-onnx-offline",
+                // "<top>/lib/libonnxruntime.so"). After stripping the wrapper that
+                // leaves "bin/<exe>" / "lib/<lib>"; flatten that one level too so the
+                // binary and its sibling libs land TOGETHER in binDir — where both
+                // LocateCli's flat probe and the loader's @loader_path/$ORIGIN
+                // resolution find them. A truly flat repack is untouched.
+                if (name.StartsWith("bin/", StringComparison.Ordinal) ||
+                    name.StartsWith("lib/", StringComparison.Ordinal))
+                    name = name[4..];
                 if (string.IsNullOrEmpty(name)) name = entry.Name;
                 var target = Path.GetFullPath(Path.Combine(binDir, name));
                 // Guard against zip-slip: never write outside binDir.

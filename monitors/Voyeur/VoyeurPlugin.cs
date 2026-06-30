@@ -203,7 +203,8 @@ public sealed class VoyeurPlugin : IZeusPlugin, IBackendPlugin, IRxAudioTapPlugi
             var cur = _engineSettings;
             var kind = cur.Engine;
             if (!string.IsNullOrWhiteSpace(body?.Engine) &&
-                Enum.TryParse<SttEngineKind>(body!.Engine, ignoreCase: true, out var k))
+                Enum.TryParse<SttEngineKind>(body!.Engine, ignoreCase: true, out var k) &&
+                Enum.IsDefined(typeof(SttEngineKind), k))
                 kind = k;
             var next = new EngineSettings(
                 Engine: kind,
@@ -218,9 +219,13 @@ public sealed class VoyeurPlugin : IZeusPlugin, IBackendPlugin, IRxAudioTapPlugi
         endpoints.MapGet("config/seg", () => Results.Ok(_seg));
         endpoints.MapPut("config/seg", async (SegSettings body, CancellationToken ct) =>
         {
-            var s = body ?? new SegSettings();
+            // Clamp to sane ranges so an oversized PreRollMs can't blow up the
+            // per-session pre-roll buffer (Pi) and the other tunables stay finite.
+            var s = ClampSeg(body ?? new SegSettings());
             _seg = s;
-            _transcription?.Configure(s); // VAD refine picks it up now; gate on next Start
+            // Experimental VAD refine reads UseVad here; the energy gate (always
+            // on) takes the new tunables on the next Start.
+            _transcription?.Configure(s);
             await (_ctx?.Settings.SetAsync("voyeur.seg", s, ct) ?? Task.CompletedTask);
             return Results.Ok(_seg);
         });
@@ -228,7 +233,7 @@ public sealed class VoyeurPlugin : IZeusPlugin, IBackendPlugin, IRxAudioTapPlugi
         // --- watchword alerts (config redacted; secrets write-only) ------------
         endpoints.MapGet("alerts/config", async () => Results.Ok(await Alerts.GetConfigAsync()));
         endpoints.MapPut("alerts/config", async (AlertConfigUpdate body) =>
-            Results.Ok(await Alerts.UpdateConfigAsync(body)));
+            Results.Ok(await Alerts.UpdateConfigAsync(SanitizeAlertUpdate(body))));
         endpoints.MapPost("alerts/test", async (VoyeurAlertTestRequest? body) =>
             Results.Ok(await Alerts.TestAsync(body?.Channel)));
 
@@ -236,7 +241,7 @@ public sealed class VoyeurPlugin : IZeusPlugin, IBackendPlugin, IRxAudioTapPlugi
         endpoints.MapGet("corpus", () => Results.Ok(Corpus.GetStats()));
         endpoints.MapPatch("corpus", async (CorpusSettings body, CancellationToken ct) =>
         {
-            var s = new CorpusSettings(body?.RetainCorpus ?? false, body?.MaxClips ?? 5000);
+            var s = new CorpusSettings(body?.RetainCorpus ?? false, Math.Max(0, body?.MaxClips ?? 5000));
             Corpus.Settings = s;
             await (_ctx?.Settings.SetAsync("corpus", s, ct) ?? Task.CompletedTask);
             return Results.Ok(Corpus.GetStats());
@@ -309,6 +314,37 @@ public sealed class VoyeurPlugin : IZeusPlugin, IBackendPlugin, IRxAudioTapPlugi
     };
 
     private static InvalidOperationException NotInit() => new("VoyeurPlugin not initialised");
+
+    // Clamp segmentation tunables to sane ranges (a huge PreRollMs would allocate
+    // a multi-hundred-MB pre-roll buffer per session — a real risk on a Pi).
+    private static SegSettings ClampSeg(SegSettings s) => s with
+    {
+        PreRollMs = Math.Clamp(s.PreRollMs, 0, 5000),
+        HangSeconds = Math.Clamp(s.HangSeconds, 0.0, 10.0),
+        MaxOverSeconds = Math.Clamp(s.MaxOverSeconds, 1.0, 3600.0),
+        OpenMarginDb = Math.Clamp(s.OpenMarginDb, 0.0, 60.0),
+    };
+
+    // Validate an alert-config PUT before it reaches the store/matcher:
+    //  • drop blank watchwords and cap each Text at 64 chars (defense-in-depth
+    //    against an oversized watchword reaching WatchwordMatcher's stackalloc);
+    //  • clamp the flood-control knobs to >= 0 (0 = disabled).
+    private static AlertConfigUpdate SanitizeAlertUpdate(AlertConfigUpdate? body)
+    {
+        if (body is null) return new AlertConfigUpdate();
+        IReadOnlyList<Watchword>? ww = body.Watchwords;
+        if (ww is not null)
+            ww = ww.Where(w => w is not null && !string.IsNullOrWhiteSpace(w.Text))
+                   .Select(w => w.Text.Length > 64 ? w with { Text = w.Text[..64] } : w)
+                   .ToList();
+        return body with
+        {
+            Watchwords = ww,
+            CooldownSeconds = body.CooldownSeconds is { } cd ? Math.Max(0, cd) : null,
+            GlobalRateCapPer10Min = body.GlobalRateCapPer10Min is { } gc ? Math.Max(0, gc) : null,
+            ClipMaxSeconds = body.ClipMaxSeconds is { } cm ? Math.Max(0, cm) : null,
+        };
+    }
 }
 
 /// <summary>Minimal IHttpClientFactory for VoyeurInstallService's occasional

@@ -339,6 +339,11 @@ public sealed class SherpaParakeetTranscriber : ISttEngine
         catch (OperationCanceledException)
         {
             try { proc.Kill(entireProcessTree: true); } catch { /* ignore */ }
+            // Observe both pipe reads before unwinding so the killed child's
+            // stream tasks don't become unobserved faulted tasks (matches
+            // SileroVad.RunCliAsync's await-in-catch).
+            try { await outTask.ConfigureAwait(false); } catch { /* ignore */ }
+            try { await errTask.ConfigureAwait(false); } catch { /* ignore */ }
             throw;
         }
 

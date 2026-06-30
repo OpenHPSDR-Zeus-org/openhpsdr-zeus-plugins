@@ -57,14 +57,23 @@ public sealed class NtfyAlertChannel : IAlertChannel
             Content = new StringContent(payload.BodyText(), Encoding.UTF8),
         };
         // ntfy reads these as the notification title / priority / tags.
-        req.Headers.TryAddWithoutValidation("X-Title", payload.Subject);
+        // TryAddWithoutValidation writes the value to the wire RAW, so strip
+        // control chars (CR/LF/DEL) first: the Subject embeds over-the-air
+        // transcript text and the DeepLink embeds an operator-supplied base URL —
+        // either could otherwise inject extra headers into the request.
+        req.Headers.TryAddWithoutValidation("X-Title", HeaderSafe(payload.Subject));
         req.Headers.TryAddWithoutValidation("X-Tags", "radio");
         if (!string.IsNullOrEmpty(payload.DeepLink))
-            req.Headers.TryAddWithoutValidation("X-Click", payload.DeepLink);
+            req.Headers.TryAddWithoutValidation("X-Click", HeaderSafe(payload.DeepLink));
         if (!string.IsNullOrEmpty(n.Token))
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", n.Token);
 
         using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
         resp.EnsureSuccessStatusCode();
     }
+
+    // Strip control characters (incl. CR/LF and DEL) so a value can never inject
+    // additional HTTP headers when written via TryAddWithoutValidation.
+    private static string HeaderSafe(string? s) =>
+        s is null ? "" : new string(s.Where(c => c >= ' ' && c != '\u007f').ToArray());
 }

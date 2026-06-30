@@ -39,8 +39,12 @@ namespace Zeus.Server.Voyeur;
 /// </summary>
 public sealed record SegSettings
 {
-    /// <summary>Opt in to Silero-VAD boundary refinement (default OFF — the
-    /// energy gate is the floor and needs no download).</summary>
+    /// <summary>Opt in to Silero-VAD boundary refinement (EXPERIMENTAL; default
+    /// OFF). When the Silero model + sherpa engine are installed it refines a
+    /// saved over's boundaries by trimming leading/trailing silence before
+    /// transcription; it FAILS SAFE to the always-on energy gate (and always
+    /// transcribes) whenever VAD is absent, returns nothing, or errors. The
+    /// energy gate is the floor and needs no download.</summary>
     public bool UseVad { get; init; } = false;
 
     /// <summary>RMS must rise this many dB above the tracked noise floor to open

@@ -56,7 +56,10 @@ public sealed class WhisperSttEngine : ISttEngine
         if (!_whisper.Available) return SttResult.NotInstalled("Whisper");
 
         if (opt.Hotwords.Count > 0 && _log.IsEnabled(LogLevel.Debug))
-            _log.LogDebug("voyeur.whisper hotword-bias prompt={Prompt}", ComposePrompt(opt.Hotwords));
+            // Diagnostic PREVIEW of the hotword bias only — the actual decode
+            // prompt sent to whisper-cli is built downstream in
+            // WhisperTranscriber.BuildPrompt from these same hotwords.
+            _log.LogDebug("voyeur.whisper hotword-bias preview={Preview}", ComposePrompt(opt.Hotwords));
 
         // Feed the contextual phrases (the confirmed session roster) through to
         // whisper as a dynamic prompt suffix. Empty ⇒ byte-identical default path.

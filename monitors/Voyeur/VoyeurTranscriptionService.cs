@@ -66,6 +66,7 @@ public sealed class VoyeurTranscriptionService
     // Per-callsign QRZ cache + a min interval between live lookups. The worker
     // is single-threaded so this needs no locking.
     private readonly Dictionary<string, (QrzLookupResult? Station, bool Valid)> _qrzCache = new(StringComparer.Ordinal);
+    private const int QrzCacheCap = 2000; // bound the per-lifetime QRZ cache
     private DateTime _lastQrzLookup = DateTime.MinValue;
     private static readonly TimeSpan QrzMinInterval = TimeSpan.FromMilliseconds(600);
 
@@ -143,6 +144,8 @@ public sealed class VoyeurTranscriptionService
 
         // Seed the decode with the live CONFIRMED roster (helps the whisper
         // prompt; no-op for greedy Parakeet). Confirmed-only — see SessionRoster.
+        // Fetched ONCE per over and reused for attribution below (was queried
+        // twice — two locked LiteDB scans per over).
         var roster = _store.SessionRoster(job.SessionId);
         var hotwords = roster as IReadOnlyList<string> ?? roster.ToList();
 
@@ -155,36 +158,46 @@ public sealed class VoyeurTranscriptionService
             Threads: Math.Min(4, Environment.ProcessorCount),
             Timeout: TimeSpan.FromMilliseconds(Math.Max(60_000, job.DurationMs * 2)));
 
-        var result = await engine.TranscribeAsync(job.WavPath, opt, ct);
+        // OPTIONAL VAD refine (fail-SAFE). When the operator opted in AND the
+        // sherpa engine + Silero model are installed, run VAD off the audio path
+        // and TRIM the saved over to just the bracketed speech before STT, so
+        // whisper/Parakeet don't hallucinate on leading/trailing silence. HARD
+        // RULE: VAD must NEVER skip transcription — null/empty spans, an
+        // unreadable WAV, a child error, or ANY exception all fall through to the
+        // ORIGINAL full energy-gate WAV, which is always transcribed.
+        string sttWav = job.WavPath;
+        string? vadTemp = null;
+        if (_segSettings.UseVad && _vad is not null && _vad.Available)
+        {
+            try
+            {
+                var spans = await _vad.DetectAsync(job.WavPath, _segSettings, TimeSpan.FromSeconds(30), ct);
+                sttWav = ResolveSttWav(job.WavPath, spans, job.DurationMs / 1000.0, out vadTemp);
+            }
+            catch (Exception ex) { _log.LogDebug(ex, "voyeur.vad refine failed (ignored) — using full over"); }
+        }
+
+        SttResult result;
+        try
+        {
+            result = await engine.TranscribeAsync(sttWav, opt, ct);
+        }
+        finally
+        {
+            if (vadTemp is not null) TryDelete(vadTemp);
+        }
         var transcript = result.Text;
 
         if (string.IsNullOrWhiteSpace(transcript))
         {
             // No speech (quiet/garbled over) — record nothing to attribute; leave
             // the segment as captured-only.
-            //
-            // OPTIONAL VAD (fail-SAFE): the sherpa VAD CLI contract is unverified,
-            // so VAD must NEVER skip transcription. We only run it here, off the
-            // audio path, as a best-effort diagnostic when the operator opted in
-            // and the engine+model are installed — it can confirm an empty result
-            // really had no speech, but it can never blackhole a real over.
-            if (_segSettings.UseVad && _vad is not null && _vad.Available)
-            {
-                try
-                {
-                    var spans = await _vad.DetectAsync(job.WavPath, _segSettings, TimeSpan.FromSeconds(30), ct);
-                    if (spans is not null)
-                        _log.LogDebug("voyeur.vad seg={Seg} empty-result spans={N}", job.SegmentId, spans.Count);
-                }
-                catch (Exception ex) { _log.LogDebug(ex, "voyeur.vad refine failed (ignored)"); }
-            }
-
             _store.UpdateSegmentTranscript(job.SegmentId, transcript: null,
                 callsign: null, callsignState: "unknown", callsignName: null);
             return;
         }
 
-        var (callsign, state, name) = await AttributeAsync(transcript, job.SessionId, ct);
+        var (callsign, state, name) = await AttributeAsync(transcript, job.SessionId, roster, ct);
         _store.UpdateSegmentTranscript(job.SegmentId, transcript, callsign, state, name);
         _log.LogDebug("voyeur.transcribe seg={Seg} engine={Engine} call={Call} state={State}",
             job.SegmentId, engineName, callsign, state);
@@ -205,7 +218,7 @@ public sealed class VoyeurTranscriptionService
     // confirmed = QRZ resolves it (real licensee); tentative = well-formed but
     // QRZ has no record (DX/foreign/unlisted); unknown = nothing decodable.
     private async Task<(string? callsign, string state, string? name)> AttributeAsync(
-        string transcript, string sessionId, CancellationToken ct)
+        string transcript, string sessionId, IReadOnlyCollection<string> roster, CancellationToken ct)
     {
         var candidates = CallsignExtractor.Extract(transcript);
         if (candidates.Count == 0) return (null, "unknown", null);
@@ -215,8 +228,8 @@ public sealed class VoyeurTranscriptionService
         // rank + dedup. Snapping never elevates state on its own — every snapped
         // candidate still goes through QRZ below, so a snap to a confirmed roster
         // call only resolves "confirmed" via that call's own QRZ confirmation
-        // (cached), never by laundering.
-        var roster = _store.SessionRoster(sessionId);
+        // (cached), never by laundering. The roster is fetched once in ProcessAsync
+        // and threaded through here.
         var snapped = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var cand in candidates)
@@ -262,7 +275,41 @@ public sealed class VoyeurTranscriptionService
         catch (Exception ex) { _log.LogDebug(ex, "voyeur.qrz lookup failed {Call}", callsign); }
 
         bool valid = station is not null;
+        // Bound the cache so a multi-day session of garbled candidate strings
+        // can't leak memory. Clear-on-cap (cheap; single worker) — the worst case
+        // is a few repeat lookups after a flush, never an unbounded dictionary.
+        if (_qrzCache.Count >= QrzCacheCap) _qrzCache.Clear();
         _qrzCache[callsign] = (station, valid);
         return (station, valid);
+    }
+
+    /// <summary>
+    /// Decide which WAV to feed STT given the VAD spans. When VAD produced usable
+    /// speech, <see cref="SileroVad.Bracket"/> + <see cref="WhisperWav.TrimToTemp"/>
+    /// yield a trimmed temp copy (set in <paramref name="tempToDelete"/>);
+    /// otherwise — null/empty spans, an empty bracket, or a trim failure — the
+    /// ORIGINAL full WAV is returned and no temp is created. The caller ALWAYS
+    /// transcribes the returned path: VAD never skips transcription. Pure +
+    /// unit-tested.
+    /// </summary>
+    internal static string ResolveSttWav(
+        string originalWav, IReadOnlyList<SileroVad.SpeechSpan>? spans,
+        double overSeconds, out string? tempToDelete)
+    {
+        tempToDelete = null;
+        if (spans is null || spans.Count == 0) return originalWav;
+        var bracket = SileroVad.Bracket(
+            spans, guardSeconds: 0.2,
+            clampEndSeconds: overSeconds > 0 ? overSeconds : double.PositiveInfinity);
+        if (bracket is null) return originalWav;
+        var trimmed = WhisperWav.TrimToTemp(originalWav, bracket.Value.StartSeconds, bracket.Value.EndSeconds);
+        if (trimmed is null) return originalWav; // trim failed → keep full over
+        tempToDelete = trimmed;
+        return trimmed;
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { /* best effort */ }
     }
 }

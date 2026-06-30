@@ -137,7 +137,10 @@ public sealed record AlertPayload(
 
 /// <summary>GET response: the config WITHOUT secrets. Presence of a stored secret
 /// is surfaced as a boolean so the UI can show "password set" without ever
-/// receiving it.</summary>
+/// receiving it. Flood-control fields use 0 = disabled:
+/// <see cref="CooldownSeconds"/> 0 = no per-watchword cooldown,
+/// <see cref="GlobalRateCapPer10Min"/> 0 = no global rate cap. Both are clamped
+/// to >= 0 on update.</summary>
 public sealed record AlertConfigDto(
     bool Enabled,
     IReadOnlyList<Watchword> Watchwords,

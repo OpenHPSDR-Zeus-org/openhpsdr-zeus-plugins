@@ -116,7 +116,11 @@ public sealed class VoyeurMonitorService : IDisposable
 
             var ct = _drainCts.Token;
             var segSettings = _segSettings;
-            _drain = new Thread(() => DrainLoop(session, keepAudio, segSettings, ct))
+            var ringLocal = _ring;
+            // Pass the ring/session as captured locals so the drain thread never
+            // reads instance fields (which Stop() nulls under the lock). This is
+            // what keeps a Start()/Stop() race from starving the fresh session.
+            _drain = new Thread(() => DrainLoop(session, ringLocal, keepAudio, segSettings, ct))
             {
                 IsBackground = true,
                 Name = "voyeur-drain",
@@ -137,30 +141,35 @@ public sealed class VoyeurMonitorService : IDisposable
         Thread? drain;
         VoyeurAudioRing? ring;
         VoyeurSessionDocument? session;
+        CancellationTokenSource? cts;
         lock (_ctrl)
         {
             if (!_active) return Status();
-            // Clear active FIRST so Feed() stops writing to the ring, then let
-            // the drain thread finish the in-flight over and exit.
+            // Capture EVERY local and null EVERY field inside this one lock block.
+            // Clearing active stops Feed() writing to the ring; nulling the fields
+            // means a Start() racing this Stop() builds a brand-new
+            // session/ring/cts that we can never clobber — from here on we touch
+            // only the captured locals, never the fields again.
             _active = false;
-            _drainCts?.Cancel();
             drain = _drain;
             ring = _ring;
             session = _session;
+            cts = _drainCts;
             _drain = null;
+            _ring = null;
+            _session = null;
+            _drainCts = null;
         }
 
+        // Captured locals only past this point. Cancel BEFORE join so the drain
+        // thread exits its loop (it flushes the in-flight over on its way out),
+        // then finalize, then dispose the now-idle cts.
+        cts?.Cancel();
         drain?.Join(TimeSpan.FromSeconds(3));
         if (session is not null)
             _store.FinalizeSession(session.Id, ring?.DroppedSamples ?? 0);
+        cts?.Dispose();
 
-        lock (_ctrl)
-        {
-            _ring = null;
-            _session = null;
-            _drainCts?.Dispose();
-            _drainCts = null;
-        }
         _log.LogInformation("voyeur: stopped session {Id}", session?.Id);
         return Status();
     }
@@ -212,11 +221,8 @@ public sealed class VoyeurMonitorService : IDisposable
     }
 
     // ---- CONSUMER (drain thread, below-normal priority) — all real work here ----
-    private void DrainLoop(VoyeurSessionDocument session, bool keepAudio, SegSettings settings, CancellationToken ct)
+    private void DrainLoop(VoyeurSessionDocument session, VoyeurAudioRing ring, bool keepAudio, SegSettings settings, CancellationToken ct)
     {
-        var ring = _ring;
-        if (ring is null) return;
-
         var seg = new VoyeurSegmenter(_sampleRate, settings);
         var preRoll = PreRollBuffer.ForMs(settings.PreRollMs, _sampleRate);
         var pendingTail = new List<float>(); // trailing-quiet blocks; flushed if speech resumes, dropped on close
@@ -271,6 +277,8 @@ public sealed class VoyeurMonitorService : IDisposable
                     Thread.Sleep(20); // ring empty — yield; below-normal priority
                     continue;
                 }
+                try
+                {
                 var block = scratch.AsSpan(0, n);
                 var r = seg.Process(block);
                 switch (r.Transition)
@@ -330,6 +338,24 @@ public sealed class VoyeurMonitorService : IDisposable
                         preRoll.Write(block); // keep a rolling pre-speech tail
                         break;
                 }
+                }
+                catch (Exception ex)
+                {
+                    // A transient per-over I/O fault (disk full, file lock, AV
+                    // hold) must NOT end capture for the whole session — an
+                    // unattended monitor has to survive it. Drop just this over's
+                    // partial WAV and keep draining; the next over opens a fresh
+                    // writer. Truly fatal exits fall through to the outer catch.
+                    _log.LogWarning(ex, "voyeur: over capture failed — dropping this over, monitor continues");
+                    if (writer is not null)
+                    {
+                        var partial = writer.Path;
+                        try { writer.Dispose(); } catch { /* best effort */ }
+                        writer = null;
+                        TryDeleteFile(partial);
+                    }
+                    pendingTail.Clear();
+                }
             }
 
             // Session stopping — flush any in-flight over.
@@ -351,9 +377,15 @@ public sealed class VoyeurMonitorService : IDisposable
         catch (Exception ex)
         {
             // A crash in the consumer must not affect RX (the tap is already
-            // a fire-and-forget ring write). Mark degraded and exit cleanly.
+            // a fire-and-forget ring write). Mark degraded, drop any orphaned
+            // partial WAV, and exit cleanly.
             _degraded = true;
-            writer?.Dispose();
+            if (writer is not null)
+            {
+                var partial = writer.Path;
+                try { writer.Dispose(); } catch { /* best effort */ }
+                TryDeleteFile(partial);
+            }
             _log.LogError(ex, "voyeur: drain loop failed — monitor degraded, RX unaffected");
         }
     }

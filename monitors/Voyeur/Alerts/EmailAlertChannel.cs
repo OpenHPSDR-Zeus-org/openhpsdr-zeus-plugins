@@ -88,9 +88,11 @@ public sealed class EmailAlertChannel : IAlertChannel
             DeliveryMethod = SmtpDeliveryMethod.Network,
         };
         // Unauthenticated relays are valid (empty username) — only set creds when
-        // a username is provided. The password never leaves this object.
+        // a username is provided. Use NULL (not DefaultNetworkCredentials, which
+        // would offer the current OS user's SSO/NTLM identity) for the anonymous
+        // case. The password never leaves this object.
         client.Credentials = string.IsNullOrEmpty(cfg.Username)
-            ? CredentialCache.DefaultNetworkCredentials
+            ? null
             : new NetworkCredential(cfg.Username, cfg.Password);
 
         try
@@ -100,9 +102,13 @@ public sealed class EmailAlertChannel : IAlertChannel
             // The delay is linked to a CTS we cancel in finally so the Task.Delay
             // registration on the long-lived plugin token never leaks per send.
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            // Hard 30 s ceiling so a wedged/blackholing relay can't pin the single
+            // alert worker (or the Test-button request thread) until shutdown —
+            // SmtpClient.Timeout does NOT apply to SendMailAsync.
+            linked.CancelAfter(TimeSpan.FromSeconds(30));
             var send = client.SendMailAsync(message);
             var done = await Task.WhenAny(send, Task.Delay(Timeout.Infinite, linked.Token)).ConfigureAwait(false);
-            if (done != send) { client.SendAsyncCancel(); ct.ThrowIfCancellationRequested(); }
+            if (done != send) { client.SendAsyncCancel(); ct.ThrowIfCancellationRequested(); throw new TimeoutException("SMTP send timed out"); }
             await send.ConfigureAwait(false); // surface any send exception
         }
         finally

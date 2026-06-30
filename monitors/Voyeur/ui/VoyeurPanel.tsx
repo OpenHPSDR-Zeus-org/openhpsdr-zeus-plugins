@@ -12,7 +12,7 @@
 //
 // Zeus is distributed WITHOUT ANY WARRANTY; see ATTRIBUTIONS.md for provenance.
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   deleteVoyeurSession,
   getVoyeurSession,
@@ -29,6 +29,15 @@ import {
   startVoyeur,
   stopVoyeur,
   updateVoyeurSession,
+  getVoyeurEngineConfig,
+  putVoyeurEngineConfig,
+  getVoyeurSegConfig,
+  putVoyeurSegConfig,
+  getVoyeurAlertConfig,
+  putVoyeurAlertConfig,
+  testVoyeurAlert,
+  getVoyeurCorpus,
+  patchVoyeurCorpus,
   type VoyeurInstall,
   type VoyeurReport,
   type VoyeurSearchHit,
@@ -36,6 +45,13 @@ import {
   type VoyeurSession,
   type VoyeurSessionDetail,
   type VoyeurStatus,
+  type VoyeurEngineConfig,
+  type VoyeurSegConfig,
+  type VoyeurAlertConfig,
+  type VoyeurAlertConfigUpdate,
+  type VoyeurAlertTestResult,
+  type VoyeurWatchword,
+  type VoyeurCorpusStats,
 } from './voyeur-api';
 
 // Panel props — the host passes onRemove (was imported from core ../panels).
@@ -83,13 +99,12 @@ function TileChrome({
   );
 }
 
-// Voyeur Mode (zeus-la5) — Phase 1 panel. Park the radio on a frequency, let
-// the backend capture each transmission ("over") to a log, then review / save
-// / delete those logs. The transcript + callsign columns light up in Phase 2
-// (ASR); Phase 1 surfaces the captured-over metadata and the management UI.
-//
-// Visual design is intentionally restrained and token-only (KB2UKA owns all
-// design decisions on this repo); structure first, polish on his call.
+// Voyeur Mode (zeus-la5) — net-monitor panel. Park the radio on a frequency,
+// let the backend capture each transmission ("over") to a log, then review /
+// transcribe / summarize / save / delete those logs. The chrome borrows the WAV
+// recorder's rack-mount visual language (token-only cards, uppercase section
+// headers, dense tables, a per-over transport deck) so it reads as a sibling
+// panel; the content (roster, overs, transcript, digest, settings) is Voyeur's.
 
 function fmtFreq(hz: number): string {
   return `${(hz / 1_000_000).toFixed(3)} MHz`;
@@ -108,6 +123,80 @@ function fmtWhen(iso: string): string {
     minute: '2-digit',
   });
 }
+function fmtBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+// Collapsible settings section (recorder-style card with an uppercase header).
+function Section({
+  title,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`voyeur-sec${open ? ' is-open' : ''}`}>
+      <button type="button" className="voyeur-sec__hdr" aria-expanded={open} onClick={onToggle}>
+        <span className="voyeur-sec__chev" aria-hidden="true">{open ? '▾' : '▸'}</span>
+        <span className="voyeur-sec__title">{title}</span>
+      </button>
+      {open && <div className="voyeur-sec__body">{children}</div>}
+    </div>
+  );
+}
+
+// Local, editable mirror of the redacted alert config. Secret fields are kept
+// separate (start empty) so the form never echoes a stored secret and only
+// transmits one when the operator types a new value.
+type AlertDraft = {
+  enabled: boolean;
+  watchwords: VoyeurWatchword[];
+  email: {
+    enabled: boolean;
+    host: string;
+    port: number;
+    useSsl: boolean;
+    username: string;
+    from: string;
+    to: string;
+    hasPassword: boolean;
+    password: string; // typed-only; '' => keep stored
+  };
+  ntfy: {
+    enabled: boolean;
+    serverUrl: string;
+    topic: string;
+    hasToken: boolean;
+    token: string; // typed-only; '' => keep stored
+  };
+  sms: { enabled: boolean; gatewayAddress: string };
+  cooldownSeconds: number;
+  attachClip: boolean;
+  clipMaxSeconds: number;
+  zeusBaseUrl: string;
+};
+
+function alertDraftFrom(c: VoyeurAlertConfig): AlertDraft {
+  return {
+    enabled: c.enabled,
+    watchwords: c.watchwords.map((w) => ({ ...w })),
+    email: { ...c.email, password: '' },
+    ntfy: { ...c.ntfy, token: '' },
+    sms: { ...c.sms },
+    cooldownSeconds: c.cooldownSeconds,
+    attachClip: c.attachClip,
+    clipMaxSeconds: c.clipMaxSeconds,
+    zeusBaseUrl: c.zeusBaseUrl ?? '',
+  };
+}
 
 export function VoyeurPanel({ onRemove }: PanelComponentProps) {
   const handleRemove = onRemove ?? (() => {});
@@ -121,6 +210,7 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
   const [digestReady, setDigestReady] = useState(false);
   const [digestBusy, setDigestBusy] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [chosenModel, setChosenModel] = useState('medium.en');
   const [install, setInstall] = useState<VoyeurInstall | null>(null);
   const [query, setQuery] = useState('');
@@ -128,8 +218,25 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
   const [reports, setReports] = useState<Record<string, VoyeurReport>>({});
   const [view, setView] = useState<Record<string, 'log' | 'roster'>>({});
   const [playing, setPlaying] = useState<string | null>(null);
+  const [playPos, setPlayPos] = useState(0); // 0..1 of the currently-playing over
   const editingRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // ---- settings state ------------------------------------------------------
+  const [secOpen, setSecOpen] = useState<Record<string, boolean>>({ engine: true });
+  const [engineCfg, setEngineCfg] = useState<VoyeurEngineConfig | null>(null);
+  const [segDraft, setSegDraft] = useState<VoyeurSegConfig | null>(null);
+  const [segSaved, setSegSaved] = useState<VoyeurSegConfig | null>(null);
+  const [alertDraft, setAlertDraft] = useState<AlertDraft | null>(null);
+  const [alertDirty, setAlertDirty] = useState(false);
+  const [alertSaving, setAlertSaving] = useState(false);
+  const [testResults, setTestResults] = useState<Record<string, VoyeurAlertTestResult>>({});
+  const [testBusy, setTestBusy] = useState<string | null>(null);
+  const [corpus, setCorpus] = useState<VoyeurCorpusStats | null>(null);
+  const [corpusMaxDraft, setCorpusMaxDraft] = useState<number | null>(null);
+
+  const toggleSec = (key: string) =>
+    setSecOpen((m) => ({ ...m, [key]: !m[key] }));
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -163,6 +270,19 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
     void refreshSessions();
   }, [refreshSessions]);
 
+  // Stop and release the shared <audio> on unmount so a playing over doesn't
+  // keep going after the panel closes.
+  useEffect(
+    () => () => {
+      const el = audioRef.current;
+      if (el) {
+        el.pause();
+        el.src = '';
+      }
+    },
+    [],
+  );
+
   const refreshAsr = useCallback(async () => {
     try {
       const t = await getVoyeurTranscription();
@@ -177,6 +297,31 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
     void refreshAsr();
     void getVoyeurInstallStatus().then(setInstall).catch(() => {});
   }, [refreshAsr]);
+
+  // Lazily load settings the first time the settings drawer opens (and refresh
+  // each time it's reopened so external changes show).
+  useEffect(() => {
+    if (!showSettings) return;
+    void getVoyeurEngineConfig().then(setEngineCfg).catch(() => {});
+    void getVoyeurSegConfig()
+      .then((s) => {
+        setSegDraft(s);
+        setSegSaved(s);
+      })
+      .catch(() => {});
+    void getVoyeurAlertConfig()
+      .then((c) => {
+        setAlertDraft(alertDraftFrom(c));
+        setAlertDirty(false);
+      })
+      .catch(() => {});
+    void getVoyeurCorpus()
+      .then((c) => {
+        setCorpus(c);
+        setCorpusMaxDraft(c.maxClips);
+      })
+      .catch(() => {});
+  }, [showSettings]);
 
   // Poll install progress while a download is running; refresh ASR readiness
   // when it finishes (discovery is dynamic, so no restart needed).
@@ -340,24 +485,162 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
     }
   };
 
-  const playSegment = (segId: string) => {
+  // ---- per-over transport (play / pause / scrub the over's clip) -----------
+  const ensureAudio = () => {
     let el = audioRef.current;
     if (!el) {
       el = new Audio();
-      el.onended = () => setPlaying(null);
+      el.onended = () => {
+        setPlaying(null);
+        setPlayPos(0);
+      };
+      el.ontimeupdate = () => {
+        const a = audioRef.current;
+        if (a && a.duration > 0 && Number.isFinite(a.duration)) {
+          setPlayPos(a.currentTime / a.duration);
+        }
+      };
       audioRef.current = el;
     }
+    return el;
+  };
+
+  const playSegment = (segId: string) => {
+    const el = ensureAudio();
     if (playing === segId) {
       el.pause();
       setPlaying(null);
       return;
     }
     el.src = voyeurSegmentAudioUrl(segId);
-    void el.play().then(() => setPlaying(segId)).catch(() => setPlaying(null));
+    setPlayPos(0);
+    void el
+      .play()
+      .then(() => setPlaying(segId))
+      .catch(() => setPlaying(null));
   };
 
+  const seekSegment = (segId: string, frac: number) => {
+    const el = audioRef.current;
+    if (!el || playing !== segId || !(el.duration > 0)) return;
+    const f = Math.max(0, Math.min(1, frac));
+    el.currentTime = f * el.duration;
+    setPlayPos(f);
+  };
+
+  // ---- settings handlers ---------------------------------------------------
+  const saveEngine = async (patch: { engine?: string; provider?: string; gpuEnabled?: boolean }) => {
+    try {
+      setEngineCfg(await putVoyeurEngineConfig(patch));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const saveSeg = async () => {
+    if (!segDraft) return;
+    try {
+      const s = await putVoyeurSegConfig(segDraft);
+      setSegDraft(s);
+      setSegSaved(s);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const setSeg = <K extends keyof VoyeurSegConfig>(key: K, val: VoyeurSegConfig[K]) =>
+    setSegDraft((d) => (d ? { ...d, [key]: val } : d));
+
+  const segDirty = useMemo(
+    () => JSON.stringify(segDraft) !== JSON.stringify(segSaved),
+    [segDraft, segSaved],
+  );
+
+  const editAlert = (mut: (d: AlertDraft) => AlertDraft) => {
+    setAlertDraft((d) => (d ? mut(d) : d));
+    setAlertDirty(true);
+  };
+
+  const saveAlerts = async () => {
+    if (!alertDraft) return;
+    setAlertSaving(true);
+    setError(null);
+    try {
+      const update: VoyeurAlertConfigUpdate = {
+        enabled: alertDraft.enabled,
+        watchwords: alertDraft.watchwords
+          .map((w) => ({ ...w, text: w.text.trim() }))
+          .filter((w) => w.text.length > 0),
+        email: {
+          enabled: alertDraft.email.enabled,
+          host: alertDraft.email.host,
+          port: alertDraft.email.port,
+          useSsl: alertDraft.email.useSsl,
+          username: alertDraft.email.username,
+          from: alertDraft.email.from,
+          to: alertDraft.email.to,
+          // Secret: only sent when the operator typed something.
+          ...(alertDraft.email.password ? { password: alertDraft.email.password } : {}),
+        },
+        ntfy: {
+          enabled: alertDraft.ntfy.enabled,
+          serverUrl: alertDraft.ntfy.serverUrl,
+          topic: alertDraft.ntfy.topic,
+          ...(alertDraft.ntfy.token ? { token: alertDraft.ntfy.token } : {}),
+        },
+        sms: { enabled: alertDraft.sms.enabled, gatewayAddress: alertDraft.sms.gatewayAddress },
+        cooldownSeconds: alertDraft.cooldownSeconds,
+        attachClip: alertDraft.attachClip,
+        clipMaxSeconds: alertDraft.clipMaxSeconds,
+        zeusBaseUrl: alertDraft.zeusBaseUrl.trim() ? alertDraft.zeusBaseUrl.trim() : null,
+      };
+      const res = await putVoyeurAlertConfig(update);
+      setAlertDraft(alertDraftFrom(res)); // re-redacted; clears typed secrets
+      setAlertDirty(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAlertSaving(false);
+    }
+  };
+
+  const onTestChannel = async (channel: string) => {
+    setTestBusy(channel);
+    try {
+      const results = await testVoyeurAlert(channel);
+      setTestResults((m) => {
+        const next = { ...m };
+        for (const r of results) next[r.channel] = r;
+        return next;
+      });
+    } catch (e) {
+      setTestResults((m) => ({
+        ...m,
+        [channel]: { channel, ok: false, detail: e instanceof Error ? e.message : String(e) },
+      }));
+    } finally {
+      setTestBusy(null);
+    }
+  };
+
+  const saveCorpus = async (patch: { retainCorpus?: boolean; maxClips?: number }) => {
+    try {
+      const c = await patchVoyeurCorpus(patch);
+      setCorpus(c);
+      setCorpusMaxDraft(c.maxClips);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // ---- renderers -----------------------------------------------------------
+
+  // A single "over" — a dense table row plus an inline transport deck (play +
+  // scrub) that mirrors the WAV recorder's transport feel.
   const renderOver = (seg: VoyeurSegment) => {
     const state = seg.callsignState ?? 'unknown';
+    const isPlaying = playing === seg.id;
+    const pos = isPlaying ? playPos : 0;
     return (
       <div key={seg.id} className={`voyeur-over voyeur-over--${state}`}>
         <span className="voyeur-over__time">
@@ -366,23 +649,13 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
             minute: '2-digit',
             second: '2-digit',
           })}
-          <br />
-          {(seg.durationMs / 1000).toFixed(0)}s
         </span>
-        <span className="voyeur-over__body">
-          {seg.hasAudio && (
-            <button
-              type="button"
-              className={`voyeur-play ${playing === seg.id ? 'voyeur-play--on' : ''}`}
-              onClick={() => playSegment(seg.id)}
-              title="Play this over"
-              aria-label="Play this over"
-            >
-              {playing === seg.id ? '⏸' : '▶'}
-            </button>
-          )}
+        <span className="voyeur-over__dur">{(seg.durationMs / 1000).toFixed(0)}s</span>
+        <span className="voyeur-over__station">
           <span className={`voyeur-call voyeur-call--${state}`}>{seg.callsign ?? 'unknown'}</span>
           {seg.callsignName && <span className="voyeur-name">{seg.callsignName}</span>}
+        </span>
+        <span className="voyeur-over__text">
           {seg.transcript ? (
             <span className="voyeur-text">{seg.transcript}</span>
           ) : (
@@ -390,15 +663,64 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
               {asrReady ? 'transcribing…' : 'audio captured'}
             </span>
           )}
+          {seg.hasAudio && (
+            <span className="voyeur-deck">
+              <button
+                type="button"
+                className={`voyeur-deck__btn${isPlaying ? ' is-on' : ''}`}
+                onClick={() => playSegment(seg.id)}
+                title={isPlaying ? 'Pause' : 'Play this over'}
+                aria-label={isPlaying ? 'Pause this over' : 'Play this over'}
+              >
+                {isPlaying ? '❚❚' : '▶'}
+              </button>
+              <span
+                className="voyeur-deck__track"
+                role="slider"
+                aria-label="Scrub over"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(pos * 100)}
+                tabIndex={isPlaying ? 0 : -1}
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  if (r.width > 0) seekSegment(seg.id, (e.clientX - r.left) / r.width);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowLeft') seekSegment(seg.id, Math.max(0, pos - 0.05));
+                  if (e.key === 'ArrowRight') seekSegment(seg.id, Math.min(1, pos + 0.05));
+                }}
+              >
+                <span className="voyeur-deck__fill" style={{ width: `${pos * 100}%` }} />
+              </span>
+            </span>
+          )}
         </span>
       </div>
     );
   };
 
+  // Overs table (sticky header) — wraps the rows for one log / search hit.
+  const renderOvers = (segs: VoyeurSegment[], empty: string) => (
+    <div className="voyeur-overtable">
+      <div className="voyeur-overtable__head">
+        <span>Time</span>
+        <span>Dur</span>
+        <span>Station</span>
+        <span>Transcript</span>
+      </div>
+      <div className="voyeur-overtable__body">
+        {segs.length === 0 ? (
+          <div className="voyeur-empty" style={{ padding: '6px 10px' }}>{empty}</div>
+        ) : (
+          segs.map(renderOver)
+        )}
+      </div>
+    </div>
+  );
+
   // AI Summary bar — surfaced whenever a log is open (both Log and Roster
-  // views), so it's never hidden behind the Roster toggle. The digest text (if
-  // any) comes from the loaded report; the button works even before the report
-  // loads.
+  // views), so it's never hidden behind the Roster toggle.
   const renderSummary = (id: string) => {
     const digest = reports[id]?.digest;
     return (
@@ -414,7 +736,7 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
           {digestReady ? (
             <button
               type="button"
-              className="btn sm accent"
+              className="btn sm active"
               disabled={digestBusy === id}
               onClick={() => onGenerateDigest(id)}
               title="Summarize this net’s transcript into a short recap (runs locally, nothing leaves your machine)"
@@ -447,21 +769,528 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
           <span className="chip mono"><span className="k">overs</span><span className="v">{r.session.segmentCount}</span></span>
           <span className="chip mono"><span className="k">cap</span><span className="v">{fmtDur(r.session.capturedSeconds)}</span></span>
         </div>
-        {r.roster.length === 0 && (
-          <div className="voyeur-empty" style={{ padding: '4px 10px' }}>No callsigns identified.</div>
-        )}
-        {r.roster.map((e) => (
-          <div key={e.callsign} className="voyeur-rosteritem">
-            <span className={`voyeur-call voyeur-call--${e.state}`}>{e.callsign}</span>
-            {e.name && <span className="voyeur-name">{e.name}</span>}
-            <span className="voyeur-rosteritem__count">
-              {e.overCount} {e.overCount === 1 ? 'over' : 'overs'}
-            </span>
+        <div className="voyeur-rostertable">
+          <div className="voyeur-rostertable__head">
+            <span>Station</span>
+            <span>Name</span>
+            <span className="voyeur-rostertable__num">Overs</span>
           </div>
-        ))}
+          <div className="voyeur-rostertable__body">
+            {r.roster.length === 0 ? (
+              <div className="voyeur-empty" style={{ padding: '4px 10px' }}>No callsigns identified.</div>
+            ) : (
+              r.roster.map((e) => (
+                <div key={e.callsign} className="voyeur-rosteritem">
+                  <span className={`voyeur-call voyeur-call--${e.state}`}>{e.callsign}</span>
+                  <span className="voyeur-name">{e.name ?? '—'}</span>
+                  <span className="voyeur-rosteritem__count">{e.overCount}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
     );
   };
+
+  const legend = (
+    <div className="voyeur-legend" aria-label="Roster colour legend">
+      <span className="voyeur-legend__item">
+        <span className="voyeur-swatch voyeur-swatch--confirmed" aria-hidden="true" />
+        Confirmed — QRZ-verified licensee
+      </span>
+      <span className="voyeur-legend__item">
+        <span className="voyeur-swatch voyeur-swatch--tentative" aria-hidden="true" />
+        Tentative — heard, unverified
+      </span>
+      <span className="voyeur-legend__item">
+        <span className="voyeur-swatch voyeur-swatch--unknown" aria-hidden="true" />
+        Unknown — no decodable callsign
+      </span>
+    </div>
+  );
+
+  // ---- settings drawer -----------------------------------------------------
+  const engineIs = (kind: string) =>
+    (engineCfg?.engine ?? 'Whisper').toLowerCase() === kind;
+
+  const renderSettings = () => (
+    <div className="voyeur-settings">
+      {/* Speech engine */}
+      <Section title="Speech engine" open={!!secOpen.engine} onToggle={() => toggleSec('engine')}>
+        {!engineCfg ? (
+          <div className="voyeur-empty">Loading…</div>
+        ) : (
+          <>
+            <div className="voyeur-field">
+              <span className="voyeur-field__label">Engine</span>
+              <div className="voyeur-segctl" role="group" aria-label="Speech engine">
+                <button
+                  type="button"
+                  className={`btn sm${engineIs('whisper') ? ' active' : ''}`}
+                  onClick={() => saveEngine({ engine: 'whisper' })}
+                >
+                  Whisper
+                </button>
+                <button
+                  type="button"
+                  className={`btn sm${engineIs('parakeet') ? ' active' : ''}`}
+                  onClick={() => saveEngine({ engine: 'parakeet' })}
+                >
+                  Parakeet
+                </button>
+              </div>
+            </div>
+            <div className="voyeur-field__hint">
+              {engineIs('parakeet') && !engineCfg.available.parakeet
+                ? 'Parakeet isn’t installed yet — it downloads on first use.'
+                : engineIs('whisper')
+                  ? 'Whisper is the proven default (recommended).'
+                  : 'Parakeet is ready.'}
+            </div>
+            <label className="voyeur-check">
+              <input
+                type="checkbox"
+                checked={engineCfg.gpuEnabled}
+                onChange={(e) => saveEngine({ gpuEnabled: e.target.checked })}
+              />
+              Use GPU when available (Parakeet only; CPU is the floor)
+            </label>
+            <div className="voyeur-field__hint">
+              Active provider: <code>{engineCfg.resolvedProvider}</code>
+            </div>
+          </>
+        )}
+      </Section>
+
+      {/* Segmentation */}
+      <Section title="Segmentation" open={!!secOpen.seg} onToggle={() => toggleSec('seg')}>
+        {!segDraft ? (
+          <div className="voyeur-empty">Loading…</div>
+        ) : (
+          <>
+            <label className="voyeur-check">
+              <input
+                type="checkbox"
+                checked={segDraft.useVad}
+                onChange={(e) => setSeg('useVad', e.target.checked)}
+              />
+              Use Silero VAD (experimental)
+            </label>
+            <div className="voyeur-field">
+              <span className="voyeur-field__label">Open margin (dB)</span>
+              <input
+                type="number"
+                step={0.5}
+                value={segDraft.openMarginDb}
+                onChange={(e) => setSeg('openMarginDb', Number(e.target.value))}
+              />
+            </div>
+            <div className="voyeur-field">
+              <span className="voyeur-field__label">Hang (seconds)</span>
+              <input
+                type="number"
+                step={0.1}
+                value={segDraft.hangSeconds}
+                onChange={(e) => setSeg('hangSeconds', Number(e.target.value))}
+              />
+            </div>
+            <div className="voyeur-field">
+              <span className="voyeur-field__label">Pre-roll (ms)</span>
+              <input
+                type="number"
+                step={50}
+                value={segDraft.preRollMs}
+                onChange={(e) => setSeg('preRollMs', Number(e.target.value))}
+              />
+            </div>
+            <div className="voyeur-field">
+              <span className="voyeur-field__label">Max over (seconds)</span>
+              <input
+                type="number"
+                step={10}
+                value={segDraft.maxOverSeconds}
+                onChange={(e) => setSeg('maxOverSeconds', Number(e.target.value))}
+              />
+            </div>
+            <div className="voyeur-actions">
+              <button type="button" className="btn sm active" disabled={!segDirty} onClick={saveSeg}>
+                {segDirty ? 'Apply' : 'Saved'}
+              </button>
+            </div>
+          </>
+        )}
+      </Section>
+
+      {/* Watchword alerts */}
+      <Section title="Watchword alerts" open={!!secOpen.alerts} onToggle={() => toggleSec('alerts')}>
+        {!alertDraft ? (
+          <div className="voyeur-empty">Loading…</div>
+        ) : (
+          <>
+            <label className="voyeur-check">
+              <input
+                type="checkbox"
+                checked={alertDraft.enabled}
+                onChange={(e) => editAlert((d) => ({ ...d, enabled: e.target.checked }))}
+              />
+              Enable watchword alerts
+            </label>
+
+            {/* Watchword list */}
+            <div className="voyeur-field__label" style={{ marginTop: 6 }}>Watchwords</div>
+            {alertDraft.watchwords.length === 0 && (
+              <div className="voyeur-empty" style={{ padding: '2px 0' }}>
+                None yet — add your call or a keyword.
+              </div>
+            )}
+            {alertDraft.watchwords.map((w, i) => (
+              <div key={i} className="voyeur-wword">
+                <input
+                  type="checkbox"
+                  checked={w.enabled}
+                  aria-label="Watchword enabled"
+                  onChange={(e) =>
+                    editAlert((d) => {
+                      const ws = d.watchwords.slice();
+                      ws[i] = { ...ws[i]!, enabled: e.target.checked };
+                      return { ...d, watchwords: ws };
+                    })
+                  }
+                />
+                <input
+                  type="text"
+                  className="voyeur-wword__text"
+                  value={w.text}
+                  placeholder="callsign or keyword"
+                  onChange={(e) =>
+                    editAlert((d) => {
+                      const ws = d.watchwords.slice();
+                      ws[i] = { ...ws[i]!, text: e.target.value };
+                      return { ...d, watchwords: ws };
+                    })
+                  }
+                />
+                <select
+                  value={w.type.toLowerCase() === 'keyword' ? 'Keyword' : 'Callsign'}
+                  aria-label="Watchword type"
+                  onChange={(e) =>
+                    editAlert((d) => {
+                      const ws = d.watchwords.slice();
+                      ws[i] = { ...ws[i]!, type: e.target.value };
+                      return { ...d, watchwords: ws };
+                    })
+                  }
+                >
+                  <option value="Callsign">callsign</option>
+                  <option value="Keyword">keyword</option>
+                </select>
+                <button
+                  type="button"
+                  className="btn sm tx"
+                  aria-label="Remove watchword"
+                  onClick={() =>
+                    editAlert((d) => ({
+                      ...d,
+                      watchwords: d.watchwords.filter((_, j) => j !== i),
+                    }))
+                  }
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <div className="voyeur-actions">
+              <button
+                type="button"
+                className="btn sm"
+                onClick={() =>
+                  editAlert((d) => ({
+                    ...d,
+                    watchwords: [...d.watchwords, { text: '', type: 'Callsign', enabled: true }],
+                  }))
+                }
+              >
+                + Add watchword
+              </button>
+            </div>
+
+            {/* Email channel */}
+            <div className="voyeur-chan">
+              <label className="voyeur-check">
+                <input
+                  type="checkbox"
+                  checked={alertDraft.email.enabled}
+                  onChange={(e) =>
+                    editAlert((d) => ({ ...d, email: { ...d.email, enabled: e.target.checked } }))
+                  }
+                />
+                Email (your own SMTP)
+                <button
+                  type="button"
+                  className="btn xs"
+                  style={{ marginLeft: 'auto' }}
+                  disabled={testBusy === 'email'}
+                  onClick={() => onTestChannel('email')}
+                >
+                  {testBusy === 'email' ? 'Testing…' : 'Send test'}
+                </button>
+              </label>
+              {testResults.email && (
+                <div className={`voyeur-testres ${testResults.email.ok ? 'is-ok' : 'is-err'}`}>
+                  {testResults.email.ok ? '✓ ' : '✕ '}{testResults.email.detail}
+                </div>
+              )}
+              <div className="voyeur-grid2">
+                <input
+                  type="text"
+                  placeholder="SMTP host"
+                  value={alertDraft.email.host}
+                  onChange={(e) =>
+                    editAlert((d) => ({ ...d, email: { ...d.email, host: e.target.value } }))
+                  }
+                />
+                <input
+                  type="number"
+                  placeholder="Port"
+                  value={alertDraft.email.port}
+                  onChange={(e) =>
+                    editAlert((d) => ({ ...d, email: { ...d.email, port: Number(e.target.value) } }))
+                  }
+                />
+                <input
+                  type="text"
+                  placeholder="Username"
+                  value={alertDraft.email.username}
+                  onChange={(e) =>
+                    editAlert((d) => ({ ...d, email: { ...d.email, username: e.target.value } }))
+                  }
+                />
+                <input
+                  type="password"
+                  placeholder={alertDraft.email.hasPassword ? 'leave blank to keep current' : 'Password'}
+                  value={alertDraft.email.password}
+                  onChange={(e) =>
+                    editAlert((d) => ({ ...d, email: { ...d.email, password: e.target.value } }))
+                  }
+                />
+                <input
+                  type="text"
+                  placeholder="From address"
+                  value={alertDraft.email.from}
+                  onChange={(e) =>
+                    editAlert((d) => ({ ...d, email: { ...d.email, from: e.target.value } }))
+                  }
+                />
+                <input
+                  type="text"
+                  placeholder="To address"
+                  value={alertDraft.email.to}
+                  onChange={(e) =>
+                    editAlert((d) => ({ ...d, email: { ...d.email, to: e.target.value } }))
+                  }
+                />
+              </div>
+              <label className="voyeur-check">
+                <input
+                  type="checkbox"
+                  checked={alertDraft.email.useSsl}
+                  onChange={(e) =>
+                    editAlert((d) => ({ ...d, email: { ...d.email, useSsl: e.target.checked } }))
+                  }
+                />
+                Use TLS/SSL
+              </label>
+            </div>
+
+            {/* ntfy channel */}
+            <div className="voyeur-chan">
+              <label className="voyeur-check">
+                <input
+                  type="checkbox"
+                  checked={alertDraft.ntfy.enabled}
+                  onChange={(e) =>
+                    editAlert((d) => ({ ...d, ntfy: { ...d.ntfy, enabled: e.target.checked } }))
+                  }
+                />
+                ntfy push
+                <button
+                  type="button"
+                  className="btn xs"
+                  style={{ marginLeft: 'auto' }}
+                  disabled={testBusy === 'ntfy'}
+                  onClick={() => onTestChannel('ntfy')}
+                >
+                  {testBusy === 'ntfy' ? 'Testing…' : 'Send test'}
+                </button>
+              </label>
+              {testResults.ntfy && (
+                <div className={`voyeur-testres ${testResults.ntfy.ok ? 'is-ok' : 'is-err'}`}>
+                  {testResults.ntfy.ok ? '✓ ' : '✕ '}{testResults.ntfy.detail}
+                </div>
+              )}
+              <div className="voyeur-grid2">
+                <input
+                  type="text"
+                  placeholder="Server URL (https://ntfy.sh)"
+                  value={alertDraft.ntfy.serverUrl}
+                  onChange={(e) =>
+                    editAlert((d) => ({ ...d, ntfy: { ...d.ntfy, serverUrl: e.target.value } }))
+                  }
+                />
+                <input
+                  type="text"
+                  placeholder="Topic"
+                  value={alertDraft.ntfy.topic}
+                  onChange={(e) =>
+                    editAlert((d) => ({ ...d, ntfy: { ...d.ntfy, topic: e.target.value } }))
+                  }
+                />
+                <input
+                  type="password"
+                  placeholder={alertDraft.ntfy.hasToken ? 'token — leave blank to keep current' : 'token (optional)'}
+                  value={alertDraft.ntfy.token}
+                  onChange={(e) =>
+                    editAlert((d) => ({ ...d, ntfy: { ...d.ntfy, token: e.target.value } }))
+                  }
+                />
+              </div>
+            </div>
+
+            {/* SMS gateway channel */}
+            <div className="voyeur-chan">
+              <label className="voyeur-check">
+                <input
+                  type="checkbox"
+                  checked={alertDraft.sms.enabled}
+                  onChange={(e) =>
+                    editAlert((d) => ({ ...d, sms: { ...d.sms, enabled: e.target.checked } }))
+                  }
+                />
+                SMS via carrier email gateway
+                <button
+                  type="button"
+                  className="btn xs"
+                  style={{ marginLeft: 'auto' }}
+                  disabled={testBusy === 'sms'}
+                  onClick={() => onTestChannel('sms')}
+                >
+                  {testBusy === 'sms' ? 'Testing…' : 'Send test'}
+                </button>
+              </label>
+              {testResults.sms && (
+                <div className={`voyeur-testres ${testResults.sms.ok ? 'is-ok' : 'is-err'}`}>
+                  {testResults.sms.ok ? '✓ ' : '✕ '}{testResults.sms.detail}
+                </div>
+              )}
+              <div className="voyeur-grid2">
+                <input
+                  type="text"
+                  placeholder="5551234567@vtext.com"
+                  value={alertDraft.sms.gatewayAddress}
+                  onChange={(e) =>
+                    editAlert((d) => ({ ...d, sms: { ...d.sms, gatewayAddress: e.target.value } }))
+                  }
+                />
+              </div>
+              <div className="voyeur-field__hint">SMS reuses the Email SMTP relay above for transport.</div>
+            </div>
+
+            {/* Cooldown / deep link / clip attach */}
+            <div className="voyeur-field">
+              <span className="voyeur-field__label">Cooldown (seconds)</span>
+              <input
+                type="number"
+                step={30}
+                value={alertDraft.cooldownSeconds}
+                onChange={(e) =>
+                  editAlert((d) => ({ ...d, cooldownSeconds: Number(e.target.value) }))
+                }
+              />
+            </div>
+            <div className="voyeur-field">
+              <span className="voyeur-field__label">Zeus base URL (deep links)</span>
+              <input
+                type="text"
+                placeholder="http://your-zeus:6060"
+                value={alertDraft.zeusBaseUrl}
+                onChange={(e) => editAlert((d) => ({ ...d, zeusBaseUrl: e.target.value }))}
+              />
+            </div>
+            <label className="voyeur-check">
+              <input
+                type="checkbox"
+                checked={alertDraft.attachClip}
+                onChange={(e) => editAlert((d) => ({ ...d, attachClip: e.target.checked }))}
+              />
+              Attach the over’s audio clip to alerts
+            </label>
+            {alertDraft.attachClip && (
+              <div className="voyeur-warn">
+                ⚠ With clip attachments on, the matched recording <strong>leaves this
+                computer</strong> — it is emailed / pushed to the address you set above.
+                Transcription itself still runs locally; only alert clips are sent off the
+                machine, and only when you enable this.
+              </div>
+            )}
+            <div className="voyeur-actions">
+              <button
+                type="button"
+                className="btn sm active"
+                disabled={!alertDirty || alertSaving}
+                onClick={saveAlerts}
+              >
+                {alertSaving ? 'Saving…' : alertDirty ? 'Save alerts' : 'Saved'}
+              </button>
+            </div>
+          </>
+        )}
+      </Section>
+
+      {/* Training corpus */}
+      <Section title="Training corpus" open={!!secOpen.corpus} onToggle={() => toggleSec('corpus')}>
+        {!corpus ? (
+          <div className="voyeur-empty">Loading…</div>
+        ) : (
+          <>
+            <label className="voyeur-check">
+              <input
+                type="checkbox"
+                checked={corpus.retainCorpus}
+                onChange={(e) => void saveCorpus({ retainCorpus: e.target.checked })}
+              />
+              Keep confirmed overs to build a ham-ASR training corpus (opt-in)
+            </label>
+            <div className="voyeur-roster__stats" style={{ marginTop: 6 }}>
+              <span className="chip mono"><span className="k">clips</span><span className="v">{corpus.clipCount}</span></span>
+              <span className="chip mono"><span className="k">size</span><span className="v">{fmtBytes(corpus.bytes)}</span></span>
+              <span className="chip mono"><span className="k">cap</span><span className="v">{corpus.maxClips}</span></span>
+            </div>
+            <div className="voyeur-field" style={{ marginTop: 6 }}>
+              <span className="voyeur-field__label">Max clips</span>
+              <input
+                type="number"
+                step={500}
+                value={corpusMaxDraft ?? corpus.maxClips}
+                onChange={(e) => setCorpusMaxDraft(Number(e.target.value))}
+              />
+              <button
+                type="button"
+                className="btn sm"
+                disabled={corpusMaxDraft === null || corpusMaxDraft === corpus.maxClips}
+                onClick={() => void saveCorpus({ maxClips: corpusMaxDraft ?? corpus.maxClips })}
+              >
+                Apply
+              </button>
+            </div>
+            <div className="voyeur-field__hint">
+              Stored locally at <code>{corpus.path}</code>. Oldest clips are pruned past the cap.
+            </div>
+          </>
+        )}
+      </Section>
+    </div>
+  );
 
   const active = status?.active ?? false;
 
@@ -473,7 +1302,7 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
         rightSlot={
           <button
             type="button"
-            className={`btn ${active ? 'tx' : 'accent'}`}
+            className={`btn ${active ? 'tx' : 'active'}`}
             disabled={busy}
             onClick={active ? onStop : onStart}
             aria-label={active ? 'Stop monitoring' : 'Start monitoring'}
@@ -529,7 +1358,7 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
             )}
           </div>
 
-          {/* Transcription status + setup toggle */}
+          {/* Transcription status + setup / settings toggles */}
           <div className="voyeur-row">
             <span
               className={`voyeur-asr ${asrReady ? 'voyeur-asr--on' : 'voyeur-asr--off'}`}
@@ -539,6 +1368,14 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
               {asrReady === null ? 'checking…' : asrReady ? 'transcription on' : 'transcription off'}
             </span>
             <span style={{ flex: 1 }} />
+            <button
+              type="button"
+              className={`btn sm ${showSettings ? 'active' : ''}`}
+              onClick={() => setShowSettings((v) => !v)}
+              aria-expanded={showSettings}
+            >
+              {showSettings ? 'Hide settings' : 'Settings'}
+            </button>
             <button
               type="button"
               className="btn sm"
@@ -581,7 +1418,7 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
                     ) : (
                       <button
                         type="button"
-                        className="btn sm accent"
+                        className="btn sm active"
                         onClick={() => onInstall('engine-whisper')}
                         title="Download the whisper.cpp speech engine for your platform (one-time)"
                       >
@@ -609,7 +1446,7 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
                         </select>
                         <button
                           type="button"
-                          className="btn sm accent"
+                          className="btn sm active"
                           onClick={() => onInstall(chosenModel)}
                         >
                           Download
@@ -621,6 +1458,8 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
               )}
             </div>
           )}
+
+          {showSettings && renderSettings()}
 
           {showHelp && (
             <div className="voyeur-help">
@@ -642,7 +1481,8 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
                 </li>
               </ol>
               <h4>Transcription (one-time, optional)</h4>
-              Runs locally — audio never leaves your computer. It needs two
+              Runs locally — the speech-to-text transcription happens entirely on your
+              machine, and the audio is never uploaded for transcription. It needs two
               one-time downloads (no terminal): the <strong>speech engine</strong>{' '}
               for your platform ({install?.rid ?? 'your OS'}) and a{' '}
               <strong>speech model</strong>. Use the two-step panel above; the
@@ -670,7 +1510,7 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
                   ) : (
                     <button
                       type="button"
-                      className="btn sm"
+                      className="btn sm active"
                       disabled={install?.phase === 'Downloading'}
                       onClick={() => onInstall('engine-llama')}
                     >
@@ -688,7 +1528,7 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
                   ) : (
                     <button
                       type="button"
-                      className="btn sm"
+                      className="btn sm active"
                       disabled={install?.phase === 'Downloading'}
                       onClick={() => onInstall('digest-small')}
                     >
@@ -697,6 +1537,13 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
                   )}
                 </div>
               </div>
+              <h4>Watchword alerts &amp; privacy</h4>
+              Transcription and summaries stay on your machine. The optional{' '}
+              <strong>Watchword alerts</strong> (in Settings) are the one exception:
+              if you turn on <strong>“attach the over’s audio clip”</strong>, the
+              matched recording is sent off this computer to the email / push
+              destination you configure. With clip attachments off, alerts carry only
+              text. Nothing is sent unless you set this up.
               <h4>Reading the roster</h4>
               <span style={{ color: 'var(--accent)' }}>Blue</span> = QRZ-confirmed (real
               licensee, name shown). <span style={{ color: 'var(--power)' }}>Amber</span> =
@@ -711,7 +1558,7 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
         {/* The intercepted-comms log */}
         <div className="voyeur__log">
           <div className="voyeur-loghdr">
-            <span>Logs · {sessions.length}</span>
+            <span className="voyeur-loghdr__title">Logs · {sessions.length}</span>
             <input
               className="voyeur-search"
               type="search"
@@ -721,6 +1568,8 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
               aria-label="Search logs"
             />
           </div>
+
+          {legend}
 
           {hits !== null && (
             <>
@@ -745,7 +1594,7 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
                       Open log
                     </button>
                   </div>
-                  <div className="voyeur-overs">{hit.matches.map(renderOver)}</div>
+                  {renderOvers(hit.matches, 'No matching overs.')}
                 </div>
               ))}
             </>
@@ -831,17 +1680,11 @@ export function VoyeurPanel({ onRemove }: PanelComponentProps) {
               {openId === s.id && (
                 <>
                   {renderSummary(s.id)}
-                  {view[s.id] === 'roster' ? (
-                    renderRoster(s.id)
-                  ) : (
-                    <div className="voyeur-overs">
-                      {!detail && <div className="voyeur-empty" style={{ padding: '6px 10px' }}>Loading…</div>}
-                      {detail && detail.segments.length === 0 && (
-                        <div className="voyeur-empty" style={{ padding: '6px 10px' }}>No overs captured.</div>
-                      )}
-                      {detail && detail.segments.map(renderOver)}
-                    </div>
-                  )}
+                  {view[s.id] === 'roster'
+                    ? renderRoster(s.id)
+                    : !detail
+                      ? <div className="voyeur-empty" style={{ padding: '6px 10px' }}>Loading…</div>
+                      : renderOvers(detail.segments, 'No overs captured.')}
                 </>
               )}
             </div>
