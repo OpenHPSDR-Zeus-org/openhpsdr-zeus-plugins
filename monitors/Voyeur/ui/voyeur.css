@@ -21,6 +21,13 @@
   flex-direction: column;
   gap: 8px;
   padding: 8px 10px;
+  /* Fill the tile and scroll its own content: Zeus lets the operator resize the
+     panel to any height, so when it's short the lower controls (watchword editor,
+     SMTP fields, How-to-use) must remain reachable instead of being clipped. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* Shared card chrome (recorder-style beveled panel). */
@@ -37,8 +44,29 @@
     0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
+/* Inline setup hint (e.g. how to fill SMTP). Muted, token-only. */
+.voyeur-help-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--fg-2);
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+  margin: 2px 0 4px;
+}
+.voyeur-help-hint code {
+  font-family: var(--font-mono);
+  color: var(--fg-1);
+}
+
 /* ---- live receiver bar ---- */
 .voyeur-live {
+  /* Keep the receiver/Listening status visible while the rest of the panel
+     scrolls (it's a direct child of the .voyeur__controls scrollport). */
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 10px;
