@@ -336,6 +336,28 @@ public sealed class VoyeurStore : IDisposable
         }
     }
 
+    /// <summary>The set of CONFIRMED (QRZ-validated) callsigns already attributed
+    /// in this session — the live "likely on frequency" set the callsign matcher
+    /// snaps new decodes against, and the seed for the whisper dynamic prompt.
+    ///
+    /// CONFIRMED-ONLY by design: snapping/seeding against tentative (unvalidated)
+    /// decodes would launder early garbage into confirmed status (error
+    /// amplification). Distinct, ordinal.</summary>
+    public IReadOnlyCollection<string> SessionRoster(string sessionId)
+    {
+        lock (_gate)
+        {
+            return _segments.Query()
+                .Where(x => x.SessionId == sessionId)
+                .ToList()
+                .Where(x => !string.IsNullOrWhiteSpace(x.Callsign)
+                            && x.CallsignState == "confirmed")
+                .Select(x => x.Callsign!)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+    }
+
     /// <summary>Search every session's overs by callsign or transcript text.
     /// Returns sessions with their matching overs, newest session first.</summary>
     public IReadOnlyList<VoyeurSearchHit> Search(string query)

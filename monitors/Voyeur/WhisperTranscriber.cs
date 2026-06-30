@@ -50,9 +50,12 @@ public sealed class WhisperTranscriber
         "standing by, this is, back to net control, signal report five nine, " +
         "seventy-three, handle, grid square, rig, antenna, beam, dipole, watts.";
 
-    public WhisperTranscriber(ILogger log)
+    private readonly CallsignSettings _callsigns;
+
+    public WhisperTranscriber(ILogger log, CallsignSettings? callsigns = null)
     {
         _log = log;
+        _callsigns = callsigns ?? new CallsignSettings();
         _log.LogInformation(
             "voyeur.whisper init cli={Cli} model={Model}",
             LocateCli() ?? "missing", LocateModel() ?? "missing");
@@ -84,7 +87,9 @@ public sealed class WhisperTranscriber
     /// timed out, or failed. NEVER throws into the caller, and NEVER blocks past
     /// <paramref name="timeout"/> — a wedged child is killed.
     /// </summary>
-    public async Task<string?> TranscribeAsync(string wavPath, TimeSpan timeout, CancellationToken ct)
+    public async Task<string?> TranscribeAsync(
+        string wavPath, TimeSpan timeout, CancellationToken ct,
+        IReadOnlyCollection<string>? sessionCalls = null)
     {
         var cliPath = LocateCli();
         var modelPath = LocateModel();
@@ -113,7 +118,15 @@ public sealed class WhisperTranscriber
             };
             psi.ArgumentList.Add("-m"); psi.ArgumentList.Add(modelPath);
             psi.ArgumentList.Add("-f"); psi.ArgumentList.Add(feedPath);
-            psi.ArgumentList.Add("--prompt"); psi.ArgumentList.Add(HamPrompt);
+            psi.ArgumentList.Add("--prompt"); psi.ArgumentList.Add(BuildPrompt(sessionCalls));
+            // Beam search is OPT-IN: when BeamSize <= 0 (the default) we add NO
+            // --beam-size flag, keeping the command byte-identical to the proven
+            // greedy decode. A positive value is the operator's explicit choice.
+            if (_callsigns.BeamSize > 0)
+            {
+                psi.ArgumentList.Add("--beam-size");
+                psi.ArgumentList.Add(_callsigns.BeamSize.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
             psi.ArgumentList.Add("-otxt");
             psi.ArgumentList.Add("-of"); psi.ArgumentList.Add(outBase);
             psi.ArgumentList.Add("-np"); // no per-segment progress prints
@@ -169,6 +182,18 @@ public sealed class WhisperTranscriber
             if (createdTempWav)
                 try { if (File.Exists(feedPath)) File.Delete(feedPath); } catch { /* ignore */ }
         }
+    }
+
+    // Compose the whisper decoding prompt. With no session roster (the default /
+    // every existing caller) this returns the static ham prompt UNCHANGED, so the
+    // command line is byte-identical to today. When the caller supplies the live
+    // CONFIRMED roster, a short "already heard" suffix biases the decode toward
+    // calls known to be on this frequency (capped so the prompt stays short).
+    private static string BuildPrompt(IReadOnlyCollection<string>? sessionCalls)
+    {
+        if (sessionCalls is null || sessionCalls.Count == 0) return HamPrompt;
+        var heard = string.Join(", ", sessionCalls.Take(12));
+        return HamPrompt + " Stations already heard on this frequency: " + heard + ".";
     }
 
     // whisper tags non-speech as [BLANK_AUDIO] / (noise) etc.; collapse those

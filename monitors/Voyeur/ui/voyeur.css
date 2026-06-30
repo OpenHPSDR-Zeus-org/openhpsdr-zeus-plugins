@@ -1,13 +1,19 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * Voyeur Mode panel (zeus-la5) — "intercepted comms log" styling, built on the
- * Zeus design tokens. Dark console well for the roster/transcript; the live
- * bar reads like a receiver readout. Token-only colors. */
+ * Voyeur Mode panel (zeus-la5) — net-monitor styling. Borrows the WAV
+ * recorder's rack-mount visual language (token-only cards with a beveled
+ * gradient + inset shadow, uppercase section headers, dense tables with sticky
+ * headers and tabular-nums, a per-over transport deck) so Voyeur reads as a
+ * sibling panel. Content (roster / overs / transcript / digest / settings) is
+ * Voyeur's own. Token-only colors — no raw hex except neutral overlay rgba()s
+ * with no token equivalent. The amber #FFA028 is panadapter-trace-only and is
+ * intentionally NOT used here. */
 
 .voyeur {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  color: var(--fg-1);
 }
 
 .voyeur__controls {
@@ -17,6 +23,20 @@
   padding: 8px 10px;
 }
 
+/* Shared card chrome (recorder-style beveled panel). */
+.voyeur-live,
+.voyeur-dl,
+.voyeur-help,
+.voyeur-card,
+.voyeur-sec {
+  background: linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 100%);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
 /* ---- live receiver bar ---- */
 .voyeur-live {
   display: flex;
@@ -24,12 +44,9 @@
   gap: 10px;
   flex-wrap: wrap;
   padding: 7px 10px;
-  border-radius: var(--r-xs);
-  background: var(--bg-2);
-  border: 1px solid var(--fg-4);
 }
 .voyeur-live--on {
-  background: linear-gradient(180deg, var(--accent-soft), transparent);
+  background: linear-gradient(180deg, var(--accent-soft), var(--bg-1));
   border-color: var(--accent-line);
 }
 .voyeur-rec {
@@ -112,13 +129,8 @@
   align-items: center;
   gap: 6px;
   padding: 7px 9px;
-  border-radius: var(--r-xs);
-  background: var(--bg-2);
-  border: 1px solid var(--accent-line);
+  border-color: var(--accent-line);
   font-size: 11px;
-}
-.voyeur-dl__label {
-  color: var(--fg-2);
 }
 .voyeur-bar {
   height: 6px;
@@ -181,14 +193,27 @@
   color: var(--green-soft);
   font-weight: 600;
 }
-.voyeur-setup select {
-  background: var(--bg-1);
-  border: 1px solid var(--fg-4);
-  border-radius: var(--r-xs);
+.voyeur-setup select,
+.voyeur-field input,
+.voyeur-field select,
+.voyeur-grid2 input,
+.voyeur-wword input[type='text'],
+.voyeur-wword select {
+  background: var(--bg-0, var(--bg-inset));
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
   color: var(--fg-0);
   font: inherit;
   font-size: 11px;
-  padding: 1px 4px;
+  padding: 3px 6px;
+}
+.voyeur-field input:focus,
+.voyeur-field select:focus,
+.voyeur-grid2 input:focus,
+.voyeur-wword input:focus,
+.voyeur-wword select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 /* ---- help disclosure ---- */
@@ -196,16 +221,13 @@
   font-size: 11px;
   line-height: 1.5;
   padding: 9px 11px;
-  border-radius: var(--r-xs);
-  background: var(--bg-1);
-  border: 1px solid var(--fg-4);
   color: var(--fg-1);
 }
 .voyeur-help h4 {
   margin: 8px 0 4px;
   font-family: var(--font-display);
   font-size: 11px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--fg-2);
 }
@@ -216,7 +238,8 @@
   margin: 0;
   padding-left: 18px;
 }
-.voyeur-help code {
+.voyeur-help code,
+.voyeur-field__hint code {
   background: var(--bg-inset);
   border: 1px solid var(--fg-4);
   border-radius: 3px;
@@ -226,22 +249,177 @@
   word-break: break-all;
 }
 
-/* ---- log list (the dark console well) ---- */
+/* ============================ Settings drawer ========================== */
+.voyeur-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.voyeur-sec {
+  overflow: hidden;
+}
+.voyeur-sec__hdr {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 10px;
+  background: linear-gradient(180deg, var(--bg-3) 0%, var(--bg-2) 100%);
+  border: none;
+  color: var(--fg-2);
+  text-align: left;
+  cursor: pointer;
+}
+.voyeur-sec.is-open .voyeur-sec__hdr {
+  border-bottom: 1px solid var(--line);
+}
+.voyeur-sec__hdr:hover {
+  color: var(--fg-0);
+}
+.voyeur-sec__chev {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--fg-3);
+  width: 12px;
+}
+.voyeur-sec__title {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.voyeur-sec__body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 11px;
+  font-size: 11px;
+}
+
+.voyeur-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.voyeur-field__label {
+  flex: 0 0 auto;
+  min-width: 128px;
+  color: var(--fg-2);
+}
+.voyeur-field input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.voyeur-field__hint {
+  font-size: 10px;
+  color: var(--fg-3);
+  line-height: 1.4;
+}
+.voyeur-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg-1);
+  cursor: pointer;
+}
+.voyeur-check input[type='checkbox'] {
+  flex: 0 0 auto;
+}
+.voyeur-segctl {
+  display: inline-flex;
+  gap: 4px;
+}
+.voyeur-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* engine-section + watchword rows + channel blocks */
+.voyeur-wword {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.voyeur-wword__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.voyeur-chan {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg-inset);
+}
+.voyeur-grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.voyeur-grid2 input {
+  min-width: 0;
+}
+.voyeur-testres {
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+.voyeur-testres.is-ok {
+  color: var(--ok);
+}
+.voyeur-testres.is-err {
+  color: var(--tx);
+}
+.voyeur-warn {
+  font-size: 10px;
+  line-height: 1.45;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--power) 55%, transparent);
+  background: color-mix(in srgb, var(--power) 12%, transparent);
+  color: var(--fg-1);
+}
+
+/* ============================ Log console ============================== */
 .voyeur__log {
   flex: 1;
   min-height: 0;
   overflow: auto;
   padding: 8px 10px 12px;
   background: var(--bg-inset);
-  border-top: 1px solid var(--fg-4);
+  border-top: 1px solid var(--line);
 }
 .voyeur-loghdr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.voyeur-loghdr__title {
   font-family: var(--font-display);
   font-size: 11px;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--fg-3);
-  margin-bottom: 6px;
+}
+.voyeur-search {
+  margin-left: auto;
+  min-width: 0;
+  flex: 0 1 180px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  color: var(--fg-0);
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 7px;
+}
+.voyeur-search:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 .voyeur-empty {
   color: var(--fg-4);
@@ -249,12 +427,43 @@
   font-style: italic;
 }
 
+/* ---- colour legend ---- */
+.voyeur-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 5px 8px 8px;
+  font-size: 10px;
+  color: var(--fg-2);
+}
+.voyeur-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.voyeur-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.voyeur-swatch--confirmed {
+  background: var(--accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.voyeur-swatch--tentative {
+  background: transparent;
+  border: 1px solid var(--power);
+}
+.voyeur-swatch--unknown {
+  background: transparent;
+  border: 1px dashed var(--fg-4);
+}
+
+/* ---- log card ---- */
 .voyeur-card {
-  border: 1px solid var(--fg-4);
-  border-radius: var(--r-xs);
   margin-bottom: 7px;
   overflow: hidden;
-  background: var(--bg-1);
 }
 .voyeur-card__head {
   display: flex;
@@ -295,18 +504,40 @@
   flex-wrap: wrap;
   padding: 0 8px 7px 8px;
 }
+.voyeur-viewtoggle {
+  display: inline-flex;
+  gap: 2px;
+  margin-right: 4px;
+}
 
-/* ---- per-over rows: the intercepted-comms log ---- */
-.voyeur-overs {
-  padding: 2px 0 2px 0;
+/* ============================ Overs table ============================= */
+.voyeur-overtable {
+  --over-cols: 56px 34px minmax(86px, 0.9fr) 2fr;
   background: var(--bg-inset);
-  border-top: 1px solid var(--fg-4);
+  border-top: 1px solid var(--line);
+}
+.voyeur-overtable__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: var(--over-cols);
+  gap: 9px;
+  padding: 4px 10px;
+  background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-3);
 }
 .voyeur-over {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: var(--over-cols);
   gap: 9px;
-  padding: 6px 10px 6px 8px;
+  padding: 6px 10px;
   border-left: 2px solid transparent;
 }
 .voyeur-over + .voyeur-over {
@@ -318,15 +549,23 @@
 .voyeur-over--tentative {
   border-left-color: var(--power);
 }
-.voyeur-over__time {
+.voyeur-over__time,
+.voyeur-over__dur {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--fg-3);
   white-space: nowrap;
-  padding-top: 2px;
   font-variant-numeric: tabular-nums;
+  padding-top: 1px;
 }
-.voyeur-over__body {
+.voyeur-over__station {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+}
+.voyeur-over__text {
   min-width: 0;
 }
 .voyeur-call {
@@ -338,6 +577,9 @@
   padding: 1px 7px;
   border-radius: var(--r-xs);
   vertical-align: middle;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .voyeur-call--confirmed {
   color: var(--fg-0);
@@ -357,11 +599,9 @@
 .voyeur-name {
   color: var(--fg-2);
   font-size: 10px;
-  margin-left: 6px;
 }
 .voyeur-text {
   display: block;
-  margin-top: 3px;
   color: var(--fg-1);
   font-size: 11px;
   line-height: 1.45;
@@ -371,59 +611,64 @@
   font-style: italic;
 }
 
-.voyeur-error {
-  color: var(--tx);
-  font-size: 11px;
-}
-
-/* ---- Phase 3: search, roster, digest, replay ---- */
-.voyeur-loghdr {
+/* ---- per-over transport deck (play + scrub) ---- */
+.voyeur-deck {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
+  margin-top: 5px;
 }
-.voyeur-search {
-  margin-left: auto;
-  min-width: 0;
-  flex: 0 1 180px;
-  background: var(--bg-1);
-  border: 1px solid var(--fg-4);
-  border-radius: var(--r-xs);
-  color: var(--fg-0);
-  font: inherit;
-  font-size: 11px;
-  padding: 2px 7px;
-}
-.voyeur-search:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-.voyeur-viewtoggle {
+.voyeur-deck__btn {
+  flex: 0 0 auto;
   display: inline-flex;
-  gap: 2px;
-  margin-right: 4px;
-}
-.voyeur-play {
-  background: none;
-  border: 1px solid var(--fg-4);
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 18px;
   border-radius: var(--r-xs);
+  border: 1px solid var(--line-strong);
+  background: linear-gradient(180deg, var(--bg-3), var(--bg-2));
   color: var(--accent-bright);
-  cursor: pointer;
   font-size: 9px;
   line-height: 1;
-  padding: 2px 5px;
-  margin-right: 6px;
-  vertical-align: middle;
+  cursor: pointer;
 }
-.voyeur-play--on {
+.voyeur-deck__btn:hover {
+  color: var(--fg-0);
+  border-color: var(--accent-line);
+}
+.voyeur-deck__btn.is-on {
   color: var(--fg-0);
   background: var(--accent);
   border-color: var(--accent);
 }
+.voyeur-deck__track {
+  flex: 1 1 auto;
+  min-width: 40px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-meter, var(--bg-0, var(--bg-inset)));
+  border: 1px solid var(--line-strong);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  cursor: pointer;
+}
+.voyeur-deck__track:focus-visible {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 1px;
+}
+.voyeur-deck__fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-bright));
+  box-shadow: 0 0 6px var(--accent-soft);
+}
+
+/* ============================ Roster ================================= */
 .voyeur-roster {
   padding: 8px 10px;
   background: var(--bg-inset);
-  border-top: 1px solid var(--fg-4);
+  border-top: 1px solid var(--line);
 }
 .voyeur-roster__stats {
   display: flex;
@@ -431,41 +676,74 @@
   flex-wrap: wrap;
   margin-bottom: 8px;
 }
+.voyeur-rostertable {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.voyeur-rostertable__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) 1.4fr 54px;
+  gap: 8px;
+  padding: 4px 10px;
+  background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+}
+.voyeur-rostertable__num {
+  text-align: right;
+}
+.voyeur-rosteritem {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) 1.4fr 54px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 10px;
+}
+.voyeur-rosteritem + .voyeur-rosteritem {
+  border-top: 1px solid color-mix(in srgb, var(--fg-4) 50%, transparent);
+}
+.voyeur-rosteritem .voyeur-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voyeur-rosteritem__count {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- AI Summary bar ---- */
+.voyeur-summary {
+  padding: 8px 10px;
+  background: var(--bg-inset);
+  border-top: 1px solid var(--line);
+}
+.voyeur-summary .voyeur-digest {
+  margin: 8px 0 0;
+}
 .voyeur-digest {
   padding: 8px 10px;
   margin-bottom: 8px;
-  border-radius: var(--r-xs);
+  border-radius: var(--r-sm);
   background: var(--bg-1);
   border: 1px solid var(--accent-line);
   border-left: 3px solid var(--accent);
   color: var(--fg-1);
   font-size: 11px;
   line-height: 1.5;
-}
-.voyeur-rosteritem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 2px;
-}
-.voyeur-rosteritem + .voyeur-rosteritem {
-  border-top: 1px solid color-mix(in srgb, var(--fg-4) 50%, transparent);
-}
-.voyeur-rosteritem__count {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--fg-3);
-}
-
-/* AI Summary bar — shown above both Log and Roster views when a log is open. */
-.voyeur-summary {
-  padding: 8px 10px;
-  background: var(--bg-inset);
-  border-top: 1px solid var(--fg-4);
-}
-.voyeur-summary .voyeur-digest {
-  margin: 8px 0 0;
 }
 .voyeur-digestbar {
   display: flex;
@@ -482,7 +760,7 @@
 .voyeur-digestbar__label {
   font-family: var(--font-display);
   font-size: 10px;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--fg-2);
 }
@@ -499,4 +777,9 @@
   font-size: 10px;
   color: var(--fg-3);
   font-style: italic;
+}
+
+.voyeur-error {
+  color: var(--tx);
+  font-size: 11px;
 }

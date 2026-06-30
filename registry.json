@@ -253,13 +253,21 @@
     {
       "id": "com.kb2uka.voyeur",
       "name": "Voyeur Mode · Net Monitor",
-      "description": "Unattended net monitor (zeus-la5). Parks on a frequency and logs each over: captures the audio, transcribes speech to text on-device (whisper.cpp), extracts callsigns and enriches them via QRZ, builds a roster of who checked in, and writes a local-LLM 'what was discussed' digest. Searchable archive with per-over replay. Speech + AI engines download on first enable (offline thereafter). Extracted from Zeus core.",
+      "description": "Unattended net monitor (zeus-la5). Parks on a frequency and logs each over: captures the audio, transcribes speech to text on-device (selectable Whisper or NVIDIA Parakeet engine, optional GPU), extracts callsigns and enriches them via QRZ, builds a roster of who checked in, and writes a local-LLM 'what was discussed' digest. Watchword alerts e-mail/push you (with a clip, time and frequency) when your call or a keyword is heard. Searchable archive with per-over replay. Speech + AI engines download on first enable (offline thereafter). Extracted from Zeus core.",
       "author": "Douglas J. Cerrato (KB2UKA)",
       "license": "GPL-2.0-or-later",
-      "homepage": "https://github.com/Kb2uka/openhpsdr-zeus",
+      "homepage": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/tree/develop/monitors/Voyeur",
       "categories": ["monitors"],
       "verified": true,
       "versions": [
+        {
+          "version": "1.1.0",
+          "sdkAbi": 1,
+          "sdkMinVersion": "1.2.0",
+          "platforms": ["any"],
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/voyeur-v1.1.0/com.kb2uka.voyeur-1.1.0.zip",
+          "sha256": "638f7d95491a6b63c605471c86fe8943fa7f40bb0e561b3728cc1c75852c533b"
+        },
         {
           "version": "1.0.0",
           "sdkAbi": 1,

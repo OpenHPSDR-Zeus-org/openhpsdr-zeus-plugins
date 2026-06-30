@@ -26,6 +26,11 @@
     <PackageReference Include="LiteDB" Version="5.0.21" />
   </ItemGroup>
 
+  <!-- Unit tests reach internal helpers (WhisperWav, matchers, channel seams). -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Zeus.Voyeur.Plugin.Tests" />
+  </ItemGroup>
+
   <!-- Assumes OPENHPSDR-Zeus is cloned as a sibling of openhpsdr-zeus-plugins
        (symlink). Contracts are host-provided, so Private=false. -->
   <ItemGroup>

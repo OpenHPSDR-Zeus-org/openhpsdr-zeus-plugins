@@ -55,9 +55,11 @@ public static partial class CallsignExtractor
     [GeneratedRegex(@"[a-z0-9]+", RegexOptions.IgnoreCase)]
     private static partial Regex TokenRegex();
 
-    // Callsign anchor: 1-2 prefix letters + 1-2 digits. The suffix (1-4 letters)
-    // is taken from the run after the anchor.
-    [GeneratedRegex(@"[A-Z]{1,2}[0-9]{1,2}")]
+    // Callsign anchor. Prefix is 1-2 letters | letter+digit | DIGIT+letter (so
+    // digit-first ITU prefixes 2E0/4X1/9A1/3D2/7Q7 anchor too), then the 1-2
+    // number digits. The suffix (1-4 letters) is taken from the run after the
+    // anchor.
+    [GeneratedRegex(@"(?:[A-Z]{1,2}|[A-Z][0-9]|[0-9][A-Z])[0-9]{1,2}")]
     private static partial Regex AnchorRegex();
 
     // "X-ray" / "x ray" is the phonetic for X but Whisper writes it as two
@@ -85,6 +87,7 @@ public static partial class CallsignExtractor
                 counts[cand] = counts.TryGetValue(cand, out var n) ? n + 1 : 1;
 
         return counts.Keys
+            .Where(ItuCallsign.IsValidBase)          // digit-first-aware shape gate
             .OrderByDescending(c => c.Length)
             .ThenByDescending(c => counts[c])
             .ThenBy(c => c, StringComparer.Ordinal)

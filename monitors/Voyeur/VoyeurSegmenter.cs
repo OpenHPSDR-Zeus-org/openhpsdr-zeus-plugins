@@ -39,30 +39,46 @@ public sealed class VoyeurSegmenter
     private readonly double _closeMarginDb;  // ...and fall below this to start the hang
     private readonly int _hangSamples;       // quiet duration that ends an over
     private readonly int _minSegmentSamples; // ignore blips shorter than this
+    private readonly int _openDebounceSamples; // above-margin run required before opening
+    private readonly long _maxOverSamples;   // hard cap on a single over (stuck carrier)
+
+    // Floor-follower time constants (SECONDS). Converted to a per-block
+    // coefficient via 1-exp(-blockSeconds/tau), so behaviour is INDEPENDENT of
+    // the drain block size (the old fixed 0.20/0.0005 per-block coeffs drifted
+    // with block length).
+    private const double FloorDownTau = 0.10; // fast: find the quiet floor (~100 ms)
+    private const double FloorUpTau   = 5.0;  // slow: let the floor rise (~5 s)
 
     private bool _active;
     private bool _floorSeeded;
     private double _noiseFloor = 1e-4; // linear RMS estimate; seeded to ambient on first block
     private long _activeSamples;
     private long _quietRun;
+    private long _openRun;             // consecutive above-margin samples while idle
     private float _peak;
 
-    public VoyeurSegmenter(
-        int sampleRate,
-        double openMarginDb = 8.0,
-        double closeMarginDb = 4.0,
-        double hangSeconds = 1.2,
-        double minSegmentSeconds = 0.4)
+    public VoyeurSegmenter(int sampleRate) : this(sampleRate, new SegSettings()) { }
+
+    public VoyeurSegmenter(int sampleRate, SegSettings settings)
     {
         _sampleRate = sampleRate;
-        _openMarginDb = openMarginDb;
-        _closeMarginDb = closeMarginDb;
-        _hangSamples = (int)(hangSeconds * sampleRate);
-        _minSegmentSamples = (int)(minSegmentSeconds * sampleRate);
+        _openMarginDb = settings.OpenMarginDb;                         // default 6 dB (was 8)
+        _closeMarginDb = Math.Max(0.0, settings.OpenMarginDb - 2.0);   // hysteresis below open
+        _hangSamples = (int)(settings.HangSeconds * sampleRate);       // default 1.0 s (was 1.2)
+        _minSegmentSamples = (int)(0.4 * sampleRate);
+        _openDebounceSamples = (int)(0.06 * sampleRate);               // 60 ms debounce on the lower threshold
+        _maxOverSamples = settings.MaxOverSeconds > 0
+            ? (long)(settings.MaxOverSeconds * sampleRate)
+            : long.MaxValue;
     }
 
     /// <summary>True while inside an over (caller should be capturing audio).</summary>
     public bool IsActive => _active;
+
+    /// <summary>True while inside an over but in the trailing-quiet (hang) window.
+    /// The drain loop buffers these blocks and DROPS them on close so the saved
+    /// WAV (and whisper) never see the silent tail.</summary>
+    public bool InHang => _active && _quietRun > 0;
 
     /// <summary>
     /// Process one block of mono samples. Returns the transition for this block.
@@ -96,12 +112,12 @@ public sealed class VoyeurSegmenter
             return new Result(Transition.Idle, 0, 0);
         }
 
-        // Noise-floor follower: track downward fast (find the quiet floor),
-        // upward slowly (don't let a loud over raise the floor and self-close).
-        if (rms < _noiseFloor)
-            _noiseFloor += (rms - _noiseFloor) * 0.20;
-        else
-            _noiseFloor += (rms - _noiseFloor) * 0.0005;
+        // Noise-floor follower with per-SECOND time constants, so the tracking
+        // speed does not change with the drain block size.
+        double blockSeconds = (double)block.Length / _sampleRate;
+        double aDown = 1.0 - Math.Exp(-blockSeconds / FloorDownTau);
+        double aUp   = 1.0 - Math.Exp(-blockSeconds / FloorUpTau);
+        _noiseFloor += (rms - _noiseFloor) * (rms < _noiseFloor ? aDown : aUp);
         _noiseFloor = Math.Max(_noiseFloor, 1e-6);
 
         double overDb = 20.0 * Math.Log10(rms / _noiseFloor);
@@ -110,11 +126,25 @@ public sealed class VoyeurSegmenter
         {
             if (overDb >= _openMarginDb)
             {
-                _active = true;
-                _activeSamples = block.Length;
-                _quietRun = 0;
-                _peak = peak;
-                return new Result(Transition.Started, 0, 0);
+                // Debounce the lowered (6 dB) threshold: require a short run of
+                // above-margin audio before declaring an over, so weak-DX
+                // sensitivity doesn't turn into noise chatter. The pre-roll buffer
+                // (drain side) preserves these debounce blocks as the leading
+                // attack / callsign.
+                _openRun += block.Length;
+                if (_openRun >= _openDebounceSamples)
+                {
+                    _active = true;
+                    _activeSamples = block.Length;
+                    _quietRun = 0;
+                    _openRun = 0;
+                    _peak = peak;
+                    return new Result(Transition.Started, 0, 0);
+                }
+            }
+            else
+            {
+                _openRun = 0;
             }
             return new Result(Transition.Idle, 0, 0);
         }
@@ -122,6 +152,15 @@ public sealed class VoyeurSegmenter
         // Active.
         _activeSamples += block.Length;
         if (peak > _peak) _peak = peak;
+
+        // Hard cap: a stuck carrier / open mic can never grow one unbounded over.
+        if (_activeSamples >= _maxOverSamples)
+        {
+            int durMsCap = (int)(_activeSamples * 1000L / _sampleRate);
+            float peakDbCap = _peak > 0 ? 20f * MathF.Log10(_peak) : -120f;
+            Reset();
+            return new Result(Transition.Ended, durMsCap, peakDbCap);
+        }
 
         if (overDb < _closeMarginDb)
         {
@@ -167,6 +206,7 @@ public sealed class VoyeurSegmenter
         _active = false;
         _activeSamples = 0;
         _quietRun = 0;
+        _openRun = 0;
         _peak = 0;
     }
 }
