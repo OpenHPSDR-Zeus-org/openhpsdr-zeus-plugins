@@ -261,6 +261,14 @@
       "verified": true,
       "versions": [
         {
+          "version": "1.1.1",
+          "sdkAbi": 1,
+          "sdkMinVersion": "1.2.0",
+          "platforms": ["any"],
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/voyeur-v1.1.1/com.kb2uka.voyeur-1.1.1.zip",
+          "sha256": "61271f92d82f039e0d027fcb818f64bdf34f23d2f7986d57b4ccc222ecb54a06"
+        },
+        {
           "version": "1.1.0",
           "sdkAbi": 1,
           "sdkMinVersion": "1.2.0",
