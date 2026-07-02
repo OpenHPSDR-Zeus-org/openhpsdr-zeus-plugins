@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Zeus.Digital.Plugin</AssemblyName>
+    <RootNamespace>Openhpsdr.Zeus.Plugins.Digital</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- Managed plugin over the native zeus_ft8 / zeus_wspr decoders. The
+         P/Invoke structs are blittable but unpacked via pointers, hence
+         AllowUnsafeBlocks. Settings persist via IPluginContext.Settings
+         (no LiteDB). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- The test project lives in a subfolder; keep its sources out of the
+       plugin assembly (the default SDK glob would otherwise compile them in). -->
+  <ItemGroup>
+    <Compile Remove="Digital.Tests/**/*.cs" />
+  </ItemGroup>
+
+  <!-- The ported services keep their internal test seams (deterministic
+       clock/keyer/decoder constructors, watchdog single-step). -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Digital.Tests" />
+  </ItemGroup>
+
+  <!-- Assumes OPENHPSDR-Zeus is cloned (or symlinked) as a sibling of
+       openhpsdr-zeus-plugins. Contracts are host-provided, so Private=false. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\OPENHPSDR-Zeus\Zeus.Plugins.Contracts\Zeus.Plugins.Contracts.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <!-- The prebuilt zeus_ft8 / zeus_wspr natives ship inside the plugin zip
+       under runtimes/<rid>/native; Ft8NativeLoader probes that layout relative
+       to the plugin assembly at runtime. -->
+  <ItemGroup>
+    <Content Include="plugin.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="runtimes\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

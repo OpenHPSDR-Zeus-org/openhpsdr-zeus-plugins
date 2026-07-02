@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="Xunit.SkippableFact" Version="1.5.23" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!-- The plugin under test. It in turn ProjectReferences Zeus.Plugins.Contracts
+       via the OPENHPSDR-Zeus sibling symlink (see the plugin csproj + README).
+       The plugin's runtimes/<rid>/native content flows into this test's output,
+       so the corpus decode tests can load the real zeus_ft8 / zeus_wspr; where a
+       binary isn't staged for the current RID they SkippableFact-skip. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Digital.csproj" />
+  </ItemGroup>
+
+  <!-- Reference WAV vectors + answer keys, copied to output for the decode test. -->
+  <ItemGroup>
+    <Content Include="TestVectors\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

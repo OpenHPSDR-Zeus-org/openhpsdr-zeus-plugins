@@ -305,6 +305,26 @@
           "sha256": "95b88205d06bbea7ae2dcbccabf7ced4b94821a35ee00cededc5b8102ebfbb70"
         }
       ]
+    },
+    {
+      "id": "com.kb2uka.digital",
+      "name": "Zeus Digital · FT8/FT4",
+      "description": "Native FT8/FT4 digital-mode engine extracted from Zeus core: multi-pass decode (kgoba/ft8_lib), TX encode + auto-sequencing, PSK Reporter spotting, and WSJT-X-compatible UDP live decode egress. Drives the built-in Zeus Digital pop-out — installing this plugin lights up the FT8/FT4 mode buttons. WSPR decode/TX is staged in the engine but not yet enabled in the UI. Never auto-keys: the operator arms TX manually, every session.",
+      "author": "Douglas J. Cerrato (KB2UKA)",
+      "license": "GPL-2.0-or-later",
+      "homepage": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus",
+      "categories": ["modes"],
+      "verified": true,
+      "versions": [
+        {
+          "version": "1.0.0",
+          "sdkAbi": 1,
+          "sdkMinVersion": "1.2.0",
+          "platforms": ["any"],
+          "downloadUrl": "https://github.com/OpenHPSDR-Zeus-org/openhpsdr-zeus-plugins/releases/download/digital-v1.0.0/com.kb2uka.digital-1.0.0.zip",
+          "sha256": "d173d8f193af2639b15a3470fb9c47964f906b185fddf9289e8b5a96f81eb273"
+        }
+      ]
     }
   ]
 }
